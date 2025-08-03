@@ -18,8 +18,10 @@ graph TD
     
     C --> C1[NodeAdded]
     C --> C2[EdgeCreated]
-    C --> C3[PropertyUpdated]
-    C --> C4[SubgraphExtracted]
+    C --> C3[PropertyRemoved]
+    C --> C4[PropertyAdded]
+    C --> C5[PropertyStateRecorded]
+    C --> C6[SubgraphExtracted]
     
     D --> D1[TraversalRequested]
     D --> D2[PathQueryExecuted]
@@ -110,14 +112,34 @@ pub struct EdgeCreated {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PropertyUpdated {
+pub struct PropertyRemoved {
     pub metadata: EventMetadata,
     pub graph_id: GraphId,
     pub target: PropertyTarget,
     pub property_path: PropertyPath,
-    pub old_value: Option<Value>,
-    pub new_value: Value,
-    pub update_semantics: UpdateSemantics,
+    pub value: Value,
+    pub removal_reason: RemovalReason,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PropertyAdded {
+    pub metadata: EventMetadata,
+    pub graph_id: GraphId,
+    pub target: PropertyTarget,
+    pub property_path: PropertyPath,
+    pub value: Value,
+    pub semantic_meaning: SemanticMeaning,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PropertyStateRecorded {
+    pub metadata: EventMetadata,
+    pub graph_id: GraphId,
+    pub target: PropertyTarget,
+    pub property_path: PropertyPath,
+    pub value: Value,
+    pub effective_from: DateTime<Utc>,
+    pub semantic_context: SemanticContext,
 }
 ```
 
