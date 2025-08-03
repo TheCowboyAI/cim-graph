@@ -1,0 +1,60 @@
+[package]
+name = "cim-graph"
+version = "0.1.0"
+edition = "2021"
+authors = ["CIM Team"]
+description = "Unified graph abstraction library consolidating all graph operations across the CIM ecosystem"
+repository = "https://github.com/thecowboyai/cim-graph"
+license = "MIT OR Apache-2.0"
+keywords = ["graph", "network", "ipld", "workflow", "concept"]
+categories = ["data-structures", "algorithms"]
+
+[dependencies]
+# Core dependencies
+thiserror = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Graph operations
+petgraph = "0.6"
+
+# Unique IDs
+uuid = { version = "1.6", features = ["v4", "serde"] }
+
+# Time handling
+chrono = { version = "0.4", features = ["serde"] }
+
+# Async support (for future use)
+tokio = { version = "1.35", features = ["macros", "rt-multi-thread"], optional = true }
+async-trait = { version = "0.1", optional = true }
+
+[dev-dependencies]
+# Testing
+criterion = { version = "0.5", features = ["html_reports"] }
+proptest = "1.4"
+pretty_assertions = "1.4"
+
+# Test utilities
+fake = "2.9"
+quickcheck = "1.0"
+quickcheck_macros = "1.0"
+
+[features]
+default = []
+async = ["tokio", "async-trait"]
+full = ["async"]
+
+# [[bench]]
+# name = "graph_operations"
+# harness = false
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+
+[profile.bench]
+opt-level = 3
+
+[workspace]
+members = []

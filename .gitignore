@@ -1,0 +1,30 @@
+# Rust
+/target
+Cargo.lock
+**/*.rs.bk
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test coverage
+tarpaulin-report.html
+cobertura.xml
+coverage/
+
+# Benchmark results
+/criterion
+
+# Documentation
+/target/doc
+
+# Temporary files
+*.tmp
+temp/
