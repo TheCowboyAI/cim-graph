@@ -143,6 +143,52 @@ WHERE FITS_POWER_LAW(dist, min_r_squared=0.95)
 RETURN dist as scale_free_graph
 ```
 
+### Hopfield Network Queries
+
+```
+// Find Hopfield networks
+MATCH HOPFIELD_NETWORK() as hn
+WHERE hn.type = "binary" AND hn.size >= 100
+RETURN hn.id, hn.capacity, hn.stored_patterns
+
+// Pattern recall queries
+MATCH HOPFIELD_NETWORK() as hn
+WITH PARTIAL_PATTERN([1, -1, ?, ?, 1, -1, ?]) as input
+LET recalled = RECALL_PATTERN(hn, input)
+WHERE recalled.convergence_iterations < 10
+RETURN recalled.pattern, recalled.energy
+
+// Energy landscape analysis
+MATCH HOPFIELD_NETWORK() as hn
+WITH ENERGY_LANDSCAPE(hn) as landscape
+WHERE landscape.spurious_states < 0.1 * landscape.stored_patterns
+RETURN landscape.attractors, 
+       landscape.average_basin_size,
+       landscape.energy_barriers
+
+// Find networks by stored content
+MATCH HOPFIELD_NETWORK() as hn
+WHERE CONTAINS_PATTERN(hn, target_pattern, similarity > 0.8)
+RETURN hn.id, RECALL_PATTERN(hn, target_pattern) as recalled
+
+// Analyze network stability
+MATCH HOPFIELD_NETWORK() as hn
+WITH STABILITY_ANALYSIS(hn) as stability
+WHERE stability.largest_eigenvalue < 1.5
+  AND stability.spurious_rate < 0.05
+RETURN hn as stable_network
+
+// Create Hopfield network from patterns
+CREATE HOPFIELD_NETWORK()
+WITH PATTERNS([
+  [1, -1, 1, -1, 1],
+  [-1, 1, -1, 1, -1],
+  [1, 1, -1, -1, 1]
+])
+USING LEARNING_RULE("storkey")
+RETURN network.capacity, network.weights
+```
+
 ## Query Execution Engine
 
 ### Query Parser

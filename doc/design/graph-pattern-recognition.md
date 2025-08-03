@@ -111,6 +111,33 @@ pub enum FlowPattern {
 }
 ```
 
+### 5. Neural Network Patterns
+
+```rust
+pub enum NeuralPattern {
+    // Hopfield networks
+    BinaryHopfield { 
+        size: usize, 
+        stored_patterns: Vec<Pattern> 
+    },
+    ContinuousHopfield { 
+        size: usize, 
+        activation: ActivationFunction,
+        time_constant: f64 
+    },
+    ModernHopfield { 
+        size: usize, 
+        beta: f64,
+        attention_based: bool 
+    },
+    
+    // Other neural architectures
+    Perceptron { layers: Vec<usize> },
+    KohonenMap { width: usize, height: usize },
+    BoltzmannMachine { visible: usize, hidden: usize },
+}
+```
+
 ## Pattern Recognition API
 
 ### Detection Interface

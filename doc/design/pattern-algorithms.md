@@ -608,6 +608,202 @@ impl CentralityCalculator {
 }
 ```
 
+### 9. Hopfield Network Algorithms
+
+```rust
+/// Hopfield network validation and analysis
+pub struct HopfieldAnalyzer {
+    pub tolerance: f64,
+    pub max_iterations: usize,
+}
+
+impl HopfieldAnalyzer {
+    /// Verify graph is valid Hopfield network
+    pub fn validate_hopfield<G: MathematicalGraph>(&self, graph: &G) -> Result<HopfieldValidation, InvalidHopfield> {
+        let n = graph.node_count();
+        
+        // Must be complete graph
+        let expected_edges = n * (n - 1) / 2;
+        if graph.edge_count() != expected_edges {
+            return Err(InvalidHopfield::NotComplete);
+        }
+        
+        // Extract weight matrix
+        let weights = self.extract_weight_matrix(graph);
+        
+        // Check symmetry
+        for i in 0..n {
+            for j in i+1..n {
+                if (weights[(i,j)] - weights[(j,i)]).abs() > self.tolerance {
+                    return Err(InvalidHopfield::AsymmetricWeights(i, j));
+                }
+            }
+        }
+        
+        // Check zero diagonal
+        for i in 0..n {
+            if weights[(i,i)].abs() > self.tolerance {
+                return Err(InvalidHopfield::NonZeroDiagonal(i));
+            }
+        }
+        
+        Ok(HopfieldValidation {
+            network_type: self.classify_hopfield_type(&weights),
+            capacity: self.compute_capacity(n),
+            stored_patterns: self.extract_patterns(&weights),
+        })
+    }
+    
+    /// Extract stored patterns via eigenanalysis
+    pub fn extract_patterns(&self, weights: &Matrix<f64>) -> Vec<StoredPattern> {
+        let eigen = weights.symmetric_eigen();
+        let mut patterns = Vec::new();
+        
+        for (i, (eigenvalue, eigenvector)) in eigen.iter().enumerate() {
+            // Large positive eigenvalues indicate stored patterns
+            if *eigenvalue > 1.0 {
+                let pattern = self.discretize_eigenvector(eigenvector);
+                patterns.push(StoredPattern {
+                    id: i,
+                    pattern,
+                    stability: *eigenvalue,
+                });
+            }
+        }
+        
+        patterns
+    }
+    
+    /// Run Hopfield dynamics
+    pub fn run_dynamics(&self, mut state: Vec<i8>, weights: &Matrix<f64>) -> (Vec<i8>, usize) {
+        let n = state.len();
+        let mut iterations = 0;
+        let mut changed = true;
+        
+        while changed && iterations < self.max_iterations {
+            changed = false;
+            
+            // Asynchronous update
+            for i in 0..n {
+                let mut sum = 0.0;
+                for j in 0..n {
+                    if i != j {
+                        sum += weights[(i,j)] * state[j] as f64;
+                    }
+                }
+                
+                let new_state = if sum >= 0.0 { 1 } else { -1 };
+                if new_state != state[i] {
+                    state[i] = new_state;
+                    changed = true;
+                }
+            }
+            
+            iterations += 1;
+        }
+        
+        (state, iterations)
+    }
+    
+    /// Compute energy of state
+    pub fn compute_energy(&self, state: &[i8], weights: &Matrix<f64>) -> f64 {
+        let n = state.len();
+        let mut energy = 0.0;
+        
+        for i in 0..n {
+            for j in i+1..n {
+                energy -= weights[(i,j)] * state[i] as f64 * state[j] as f64;
+            }
+        }
+        
+        energy
+    }
+}
+
+/// Create Hopfield network from patterns
+pub struct HopfieldBuilder {
+    pub learning_rule: LearningRule,
+    pub capacity_check: bool,
+}
+
+impl HopfieldBuilder {
+    pub fn build_from_patterns(&self, patterns: &[Vec<i8>]) -> Result<HopfieldNetwork, BuildError> {
+        if patterns.is_empty() {
+            return Err(BuildError::NoPatterns);
+        }
+        
+        let n = patterns[0].len();
+        let p = patterns.len();
+        
+        // Check capacity
+        if self.capacity_check {
+            let max_capacity = (0.138 * n as f64) as usize; // Theoretical limit
+            if p > max_capacity {
+                return Err(BuildError::ExceedsCapacity { 
+                    requested: p, 
+                    maximum: max_capacity 
+                });
+            }
+        }
+        
+        // Build weight matrix
+        let weights = match self.learning_rule {
+            LearningRule::Hebbian => self.hebbian_weights(patterns),
+            LearningRule::Storkey => self.storkey_weights(patterns),
+            LearningRule::PseudoInverse => self.pseudo_inverse_weights(patterns),
+        };
+        
+        Ok(HopfieldNetwork {
+            size: n,
+            weights,
+            stored_patterns: patterns.to_vec(),
+        })
+    }
+    
+    fn hebbian_weights(&self, patterns: &[Vec<i8>]) -> Matrix<f64> {
+        let n = patterns[0].len();
+        let mut weights = Matrix::zeros(n, n);
+        
+        for pattern in patterns {
+            for i in 0..n {
+                for j in 0..n {
+                    if i != j {
+                        weights[(i,j)] += pattern[i] as f64 * pattern[j] as f64;
+                    }
+                }
+            }
+        }
+        
+        weights.scale(1.0 / n as f64);
+        weights
+    }
+    
+    fn storkey_weights(&self, patterns: &[Vec<i8>]) -> Matrix<f64> {
+        let n = patterns[0].len();
+        let mut weights = Matrix::zeros(n, n);
+        
+        for pattern in patterns {
+            let h = self.compute_local_fields(&weights, pattern);
+            
+            for i in 0..n {
+                for j in 0..n {
+                    if i != j {
+                        let h_ij = h[i] - weights[(i,j)] * pattern[j] as f64;
+                        let h_ji = h[j] - weights[(j,i)] * pattern[i] as f64;
+                        
+                        weights[(i,j)] += (pattern[i] as f64 * pattern[j] as f64
+                                        - pattern[i] as f64 * h_ji
+                                        - pattern[j] as f64 * h_ij) / n as f64;
+                    }
+                }
+            }
+        }
+        
+        weights
+    }
+}
+```
+
 ## Performance Characteristics
 
 | Algorithm | Time Complexity | Space Complexity | Notes |
@@ -620,5 +816,8 @@ impl CentralityCalculator {
 | Planarity Testing | O(n) | O(n) | Linear time! |
 | DSATUR Coloring | O(n²) | O(n) | Heuristic |
 | Betweenness | O(nm) | O(n+m) | Brandes algorithm |
+| Hopfield Validation | O(n²) | O(n²) | Weight matrix operations |
+| Hopfield Dynamics | O(n²) per iter | O(n²) | Async update |
+| Pattern Storage | O(pn²) | O(n²) | p patterns, Hebbian |
 
 These algorithms provide the computational foundation for pattern recognition in the Graph Domain.
