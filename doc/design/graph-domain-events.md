@@ -51,9 +51,9 @@ pub struct EventMetadata {
     pub event_id: Uuid,
     pub correlation_id: Uuid,
     pub causation_id: Uuid,
-    pub timestamp: DateTime<Utc>,
     pub actor: ActorId,
     pub semantic_intent: String,
+    // Timestamps are managed by NATS headers, not stored in events
 }
 ```
 
@@ -138,8 +138,8 @@ pub struct PropertyStateRecorded {
     pub target: PropertyTarget,
     pub property_path: PropertyPath,
     pub value: Value,
-    pub effective_from: DateTime<Utc>,
     pub semantic_context: SemanticContext,
+    // Note: Timestamps come from NATS headers, not the event itself
 }
 ```
 

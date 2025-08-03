@@ -3,7 +3,7 @@
   "description": "Unified graph abstraction library consolidating all graph operations across the CIM ecosystem",
   "version": "0.1.0",
   "current_phase": "DESIGN",
-  "last_event_id": "00b04630-51fd-4f5f-bd42-9ae3710801a7",
+  "last_event_id": "3d29277e-9250-44f2-aab7-f2c5bafe2474",
   "events": [
     {
       "event_id": "e99a30c7-3bc4-44ea-9ffa-eda9aea4c08e",
@@ -129,6 +129,19 @@
         ],
         "description": "Completed comprehensive Graph Domain design using CIM Conversation Model"
       }
+    },
+    {
+      "event_id": "3d29277e-9250-44f2-aab7-f2c5bafe2474",
+      "correlation_id": "cd7bb105-d931-4e89-bb48-eb07194cb541",
+      "causation_id": "00b04630-51fd-4f5f-bd42-9ae3710801a7",
+      "event_name": "EventDesignCorrected",
+      "timestamp": "2025-08-03T10:45:00-07:00",
+      "git_commit": "8c596c944de6200efc8503968cb2d98b0ea0f222",
+      "data": {
+        "phase": "DESIGN",
+        "artifacts": ["doc/design/event-design-correction.md"],
+        "description": "Corrected PropertyUpdated anti-pattern to follow pure EDA principles"
+      }
     }
   ],
   "projections": {
@@ -152,13 +165,13 @@
       }
     },
     "statistics": {
-      "total_events": 9,
+      "total_events": 10,
       "events_by_phase": {
         "INITIALIZE": 3,
-        "DESIGN": 6
+        "DESIGN": 7
       },
-      "commits": 4,
-      "artifacts_created": 14
+      "commits": 5,
+      "artifacts_created": 15
     },
     "phase_requirements": {
       "DESIGN": {

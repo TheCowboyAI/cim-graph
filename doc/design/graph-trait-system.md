@@ -27,7 +27,8 @@ graph TD
 
 ```rust
 /// The fundamental trait all CIM graphs implement
-pub trait CimGraph: Send + Sync {
+/// ALL GRAPHS MUST BE VALID MATHEMATICAL OBJECTS
+pub trait CimGraph: Send + Sync + MathematicalGraph {
     /// The node type for this graph
     type Node: GraphNode;
     
@@ -36,6 +37,9 @@ pub trait CimGraph: Send + Sync {
     
     /// The semantic metadata type
     type Metadata: SemanticMetadata;
+    
+    /// Mathematical proof of graph validity
+    type Proof: GraphProof;
     
     /// Unique identifier for this graph instance
     fn id(&self) -> GraphId;
@@ -52,8 +56,15 @@ pub trait CimGraph: Send + Sync {
     /// Query the graph
     fn query(&self, query: GraphQuery) -> Result<QueryResult, QueryError>;
     
-    /// Validate graph invariants
-    fn validate(&self) -> Result<ValidationReport, ValidationError>;
+    /// Validate graph invariants (mathematical + semantic)
+    fn validate(&self) -> Result<ValidationReport, ValidationError> {
+        // First verify mathematical properties
+        self.verify_graph_axioms()?;
+        self.verify_network_properties()?;
+        
+        // Then semantic validation
+        self.validate_semantic_invariants()
+    }
     
     /// Export to common format
     fn export(&self, format: ExportFormat) -> Result<ExportedGraph, ExportError>;

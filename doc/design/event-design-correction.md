@@ -56,11 +56,11 @@ pub struct PropertyStateRecorded {
     pub target: PropertyTarget,
     pub property_path: PropertyPath,
     pub value: Value,
-    pub effective_from: DateTime<Utc>,
     pub semantic_context: SemanticContext,
 }
 
-// Query would reconstruct current state by finding the latest PropertyStateRecorded
+// The messaging system (NATS) provides timestamps via headers
+// Query would reconstruct current state by examining event order
 ```
 
 ### Option 3: Convenience Wrapper (If Needed)
@@ -116,7 +116,7 @@ graph.handle_event(PropertyUpdated { ... }); // ❌ Wrong
 // We record the new state
 graph.handle_event(PropertyStateRecorded { 
     value: new_value,
-    effective_from: Utc::now(),
+    // Timestamp comes from NATS headers, not the event
     ...
 }); // ✅ Correct
 
@@ -137,16 +137,17 @@ impl GraphProjection {
         &self,
         target: PropertyTarget,
         path: PropertyPath,
-        as_of: Option<DateTime<Utc>>,
+        as_of: Option<EventSequenceNumber>,
     ) -> Option<Value> {
-        let as_of = as_of.unwrap_or_else(Utc::now);
+        // Events are ordered by the messaging system
+        // We use sequence numbers or event ordering, not timestamps
         
         self.events
             .iter()
             .filter(|e| matches!(e, GraphDomainEvent::PropertyStateRecorded(_)))
             .filter(|e| e.target() == target && e.path() == path)
-            .filter(|e| e.effective_from() <= as_of)
-            .max_by_key(|e| e.effective_from())
+            .filter(|e| as_of.map_or(true, |seq| e.sequence() <= seq))
+            .last() // Last event in order is current state
             .map(|e| e.value().clone())
     }
 }

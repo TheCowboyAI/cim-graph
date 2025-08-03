@@ -14,14 +14,17 @@ graph TB
         API[Graph API Layer]
         Registry[Graph Registry]
         EventHandler[Event Handlers]
+        MathValidator[Mathematical Validator]
         Validator[Semantic Validator]
         Composer[Graph Composer]
         
         API --> Registry
         API --> EventHandler
-        EventHandler --> Validator
+        EventHandler --> MathValidator
+        MathValidator --> Validator
         EventHandler --> Registry
         Composer --> Registry
+        Composer --> MathValidator
         Composer --> Validator
     end
     
@@ -53,6 +56,53 @@ graph TB
     style API fill:#f9f,stroke:#333,stroke-width:4px
     style EventHandler fill:#bbf,stroke:#333,stroke-width:2px
     style Registry fill:#bfb,stroke:#333,stroke-width:2px
+```
+
+## Mathematical Validation Flow
+
+```mermaid
+flowchart TD
+    Event[Graph Domain Event] --> PreCheck{Pre-Validation}
+    
+    PreCheck -->|Check| A[Graph Theory Check]
+    PreCheck -->|Check| B[Network Theory Check]
+    PreCheck -->|Check| C[Complexity Bounds Check]
+    
+    A --> A1[Verify Axioms]
+    A --> A2[Check Invariants]
+    A --> A3[Validate Class]
+    
+    B --> B1[Connectivity]
+    B --> B2[Spectral Properties]
+    B --> B3[Flow Constraints]
+    
+    C --> C1[Time Complexity]
+    C --> C2[Space Complexity]
+    
+    A1 & A2 & A3 --> MathValid{Mathematically Valid?}
+    B1 & B2 & B3 --> NetworkValid{Network Valid?}
+    C1 & C2 --> ComplexityOK{Complexity OK?}
+    
+    MathValid -->|No| Reject1[Reject: Math Violation]
+    NetworkValid -->|No| Reject2[Reject: Network Violation]
+    ComplexityOK -->|No| Reject3[Reject: Complexity Violation]
+    
+    MathValid -->|Yes| Proceed
+    NetworkValid -->|Yes| Proceed
+    ComplexityOK -->|Yes| Proceed
+    
+    Proceed[Proceed to Semantic Validation] --> SemanticCheck
+    SemanticCheck --> EventProcessing[Process Event]
+    
+    EventProcessing --> PostCheck{Post-Validation}
+    PostCheck --> VerifyPreserved[Verify Properties Preserved]
+    
+    VerifyPreserved -->|Failed| Rollback[Rollback Event]
+    VerifyPreserved -->|Success| Complete[Event Applied]
+    
+    style MathValid fill:#f96,stroke:#333,stroke-width:2px
+    style NetworkValid fill:#f96,stroke:#333,stroke-width:2px
+    style ComplexityOK fill:#f96,stroke:#333,stroke-width:2px
 ```
 
 ## Event Flow Architecture
