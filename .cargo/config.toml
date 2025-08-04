@@ -1,0 +1,25 @@
+[build]
+# Enable debug symbols for better profiling
+rustflags = ["-C", "debuginfo=2"]
+
+[target.x86_64-unknown-linux-gnu]
+# Use lld linker for faster builds on Linux
+linker = "clang"
+rustflags = ["-C", "link-arg=-fuse-ld=lld"]
+
+[profile.test]
+# Optimize test builds while keeping debug info
+opt-level = 2
+debug = true
+
+[profile.bench]
+# Maximum optimization for benchmarks
+opt-level = 3
+lto = true
+codegen-units = 1
+
+# Coverage configuration
+[env]
+CARGO_INCREMENTAL = "0"
+RUSTFLAGS = "-Cinstrument-coverage"
+LLVM_PROFILE_FILE = "cargo-test-%p-%m.profraw"

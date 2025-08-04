@@ -1,0 +1,30 @@
+[package]
+name = "cim-graph-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+cim-graph = { path = ".." }
+
+[[bin]]
+name = "fuzz_graph_operations"
+path = "fuzz_targets/fuzz_graph_operations.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_serialization"
+path = "fuzz_targets/fuzz_serialization.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_algorithms"
+path = "fuzz_targets/fuzz_algorithms.rs"
+test = false
+doc = false

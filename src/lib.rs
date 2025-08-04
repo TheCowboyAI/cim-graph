@@ -64,6 +64,7 @@ pub mod error;
 pub mod graphs;
 pub mod serde_support;
 pub mod types;
+pub mod performance;
 
 // Re-export commonly used types
 pub use crate::core::{Edge, EventGraph, EventHandler, Graph, GraphBuilder, GraphEvent, Node};
