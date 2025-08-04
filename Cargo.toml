@@ -1,4 +1,5 @@
 
+
 [package]
 name = "cim-graph"
 version = "0.1.0"
@@ -12,13 +13,6 @@ readme = "README.md"
 license = "MIT OR Apache-2.0"
 keywords = ["graph", "network", "ipld", "workflow", "concept"]
 categories = ["data-structures", "algorithms", "network-programming"]
-
-[package.metadata.docs.rs]
-all-features = true
-rustdoc-args = ["--cfg", "docsrs"]
-
-[badges]
-maintenance = { status = "actively-developed" }
 exclude = [
     ".github/",
     "doc/",
@@ -31,6 +25,13 @@ exclude = [
     "tests/generators/",
     ".cargo/"
 ]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[badges]
+maintenance = { status = "actively-developed" }
 
 [dependencies]
 # Core dependencies

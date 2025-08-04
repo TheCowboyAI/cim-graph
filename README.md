@@ -3,6 +3,9 @@
 [![Crates.io](https://img.shields.io/crates/v/cim-graph.svg)](https://crates.io/crates/cim-graph)
 [![Documentation](https://docs.rs/cim-graph/badge.svg)](https://docs.rs/cim-graph)
 [![License](https://img.shields.io/badge/license-MIT%2FApache-blue.svg)](LICENSE)
+[![Build Status](https://github.com/thecowboyai/cim-graph/workflows/CI/badge.svg)](https://github.com/thecowboyai/cim-graph/actions)
+[![Downloads](https://img.shields.io/crates/d/cim-graph.svg)](https://crates.io/crates/cim-graph)
+[![Maintenance](https://img.shields.io/badge/maintenance-actively--developed-brightgreen.svg)](https://github.com/thecowboyai/cim-graph)
 
 A high-performance, type-safe graph abstraction library that unifies multiple graph paradigms under a single, consistent API. CIM Graph provides specialized graph types for different domains while maintaining semantic clarity and zero-cost abstractions.
 
