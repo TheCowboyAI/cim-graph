@@ -14,6 +14,8 @@ pub enum StateType {
     Initial,
     /// Regular state
     Normal,
+    /// Intermediate state (alias for Normal)
+    Intermediate,
     /// Final state (exit point)
     Final,
     /// Choice/decision point
@@ -247,8 +249,34 @@ impl WorkflowGraph {
     }
     
     /// Add a transition between states
-    pub fn add_transition(&mut self, transition: WorkflowEdge) -> Result<String> {
+    pub fn add_transition(&mut self, from: &str, to: &str, event: &str) -> Result<String> {
+        let mut transition = WorkflowEdge::new(from, to);
+        transition = transition.with_trigger(event);
         self.graph.add_edge(transition)
+    }
+    
+    /// Add a transition edge directly
+    pub fn add_transition_edge(&mut self, transition: WorkflowEdge) -> Result<String> {
+        self.graph.add_edge(transition)
+    }
+    
+    /// Start the workflow from an initial state
+    pub fn start(&mut self, initial_state: &str) -> Result<()> {
+        // Verify the state exists and is initial
+        let state = self.graph.get_node(initial_state)
+            .ok_or_else(|| GraphError::NodeNotFound(initial_state.to_string()))?;
+            
+        if state.state_type() != StateType::Initial {
+            return Err(GraphError::InvalidOperation(
+                format!("State '{}' is not an initial state", initial_state)
+            ));
+        }
+        
+        self.active_states.clear();
+        self.active_states.push(initial_state.to_string());
+        self.transition_history.clear();
+        
+        Ok(())
     }
     
     /// Process an event and transition states
@@ -330,6 +358,11 @@ impl WorkflowGraph {
     
     /// Get current active states
     pub fn active_states(&self) -> &[String] {
+        &self.active_states
+    }
+    
+    /// Get current active states (alternate name for compatibility)
+    pub fn current_states(&self) -> &[String] {
         &self.active_states
     }
     
@@ -459,8 +492,8 @@ mod tests {
         let t2 = WorkflowEdge::new("processing", "done")
             .with_trigger("complete");
             
-        workflow.add_transition(t1).unwrap();
-        workflow.add_transition(t2).unwrap();
+        workflow.add_transition_edge(t1).unwrap();
+        workflow.add_transition_edge(t2).unwrap();
         
         // Verify initial state
         assert_eq!(workflow.active_states(), vec!["start"]);
@@ -489,7 +522,7 @@ mod tests {
         
         // Only connect s1 to s2
         let t1 = WorkflowEdge::new("s1", "s2");
-        workflow.add_transition(t1).unwrap();
+        workflow.add_transition_edge(t1).unwrap();
         
         // Validate
         let errors = workflow.validate();

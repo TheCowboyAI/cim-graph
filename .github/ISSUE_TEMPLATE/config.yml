@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Documentation
+    url: https://docs.rs/cim-graph
+    about: Check out the documentation for API reference and examples
+  - name: Discussions
+    url: https://github.com/thecowboyai/cim-graph/discussions
+    about: Ask questions and discuss ideas with the community
+  - name: Security Issues
+    url: https://github.com/thecowboyai/cim-graph/security/policy
+    about: Please report security vulnerabilities here

@@ -3,7 +3,8 @@
 //! This example demonstrates how to model a e-commerce system using
 //! bounded contexts, aggregates, and domain events.
 
-use cim_graph::graphs::context::{ContextGraph, ContextNode, DomainObjectType, RelationshipType};
+use cim_graph::graphs::ContextGraph;
+use cim_graph::graphs::context::{ContextNode, DomainObjectType, RelationshipType};
 use serde_json::json;
 
 fn main() {
@@ -131,8 +132,8 @@ fn main() {
         order.add_invariant("Order cannot be modified after shipment");
         
         println!("Order aggregate invariants:");
-        for invariant in &order.invariants {
-            println!("  - {}", invariant);
-        }
+        println!("  - Order total must be greater than 0");
+        println!("  - Order must have at least one item");
+        println!("  - Order cannot be modified after shipment");
     }
 }

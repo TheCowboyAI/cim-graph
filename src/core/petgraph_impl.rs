@@ -378,6 +378,22 @@ impl<N: Node + Clone, E: Edge + Clone> EventGraph<N, E> {
         Ok(outgoing + incoming)
     }
     
+    /// Get all edges from a node
+    pub fn edges_from(&self, node_id: &str) -> Result<Vec<String>> {
+        let index = self.node_id_to_index.get(node_id)
+            .ok_or_else(|| GraphError::NodeNotFound(node_id.to_string()))?;
+            
+        let edge_ids: Vec<String> = self.graph.edges(*index)
+            .filter_map(|edge_ref| {
+                self.edge_id_to_index.iter()
+                    .find(|(_, &idx)| idx == edge_ref.id())
+                    .map(|(id, _)| id.clone())
+            })
+            .collect();
+            
+        Ok(edge_ids)
+    }
+    
     /// Clear the graph
     pub fn clear(&mut self) {
         self.graph.clear();

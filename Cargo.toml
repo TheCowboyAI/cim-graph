@@ -1,13 +1,26 @@
+
 [package]
 name = "cim-graph"
 version = "0.1.0"
 edition = "2021"
-authors = ["CIM Team"]
+authors = ["CIM Team <team@thecowboy.ai>"]
 description = "Unified graph abstraction library consolidating all graph operations across the CIM ecosystem"
 repository = "https://github.com/thecowboyai/cim-graph"
+homepage = "https://github.com/thecowboyai/cim-graph"
+documentation = "https://docs.rs/cim-graph"
+readme = "README.md"
 license = "MIT OR Apache-2.0"
 keywords = ["graph", "network", "ipld", "workflow", "concept"]
-categories = ["data-structures", "algorithms"]
+categories = ["data-structures", "algorithms", "network-programming"]
+exclude = [
+    ".github/",
+    "doc/",
+    "scripts/",
+    "*.sh",
+    ".gitignore",
+    "CONTRIBUTING.md",
+    "claude.md"
+]
 
 [dependencies]
 # Core dependencies
@@ -44,9 +57,21 @@ default = []
 async = ["tokio", "async-trait"]
 full = ["async"]
 
-# [[bench]]
-# name = "graph_operations"
-# harness = false
+[[bench]]
+name = "graph_operations"
+harness = false
+
+[[bench]]
+name = "graph_types"
+harness = false
+
+[[bench]]
+name = "graph_algorithms"
+harness = false
+
+[[bench]]
+name = "serialization"
+harness = false
 
 [profile.release]
 opt-level = 3

@@ -14,6 +14,21 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::collections::HashMap;
 
+/// Layer types in a composed graph
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LayerType {
+    /// Domain/context layer
+    Domain,
+    /// Process/workflow layer
+    Process,
+    /// Knowledge/concept layer
+    Knowledge,
+    /// Data/IPLD layer
+    Data,
+    /// Custom layer
+    Custom,
+}
+
 /// Unified node type that can hold any graph-specific node
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ComposedNode {
@@ -160,6 +175,8 @@ pub struct ComposedGraph {
     node_types: HashMap<String, String>, // node_id -> type
     /// Type-specific constraints
     constraints: Vec<TypeConstraint>,
+    /// Layers in the graph
+    layers: HashMap<String, LayerType>,
 }
 
 /// Constraint for cross-type relationships
@@ -183,6 +200,7 @@ impl ComposedGraph {
             graph,
             node_types: HashMap::new(),
             constraints: Self::default_constraints(),
+            layers: HashMap::new(),
         }
     }
     
@@ -198,6 +216,7 @@ impl ComposedGraph {
             graph,
             node_types: HashMap::new(),
             constraints: Self::default_constraints(),
+            layers: HashMap::new(),
         }
     }
     
@@ -339,6 +358,94 @@ impl ComposedGraph {
         connectivity
     }
     
+    /// Add a layer to the composed graph
+    pub fn add_layer(&mut self, name: &str, layer_type: LayerType) -> Result<()> {
+        if self.layers.contains_key(name) {
+            return Err(GraphError::DuplicateNode(name.to_string()));
+        }
+        self.layers.insert(name.to_string(), layer_type);
+        Ok(())
+    }
+    
+    /// Connect nodes across layers
+    pub fn connect_layers(
+        &mut self,
+        source_layer: &str,
+        source_node: &str,
+        target_layer: &str,
+        target_node: &str,
+        connection_type: &str,
+    ) -> Result<String> {
+        // Create cross-layer connection
+        let edge = ComposedEdge::CrossType {
+            id: format!("{}:{}:{}:{}", source_layer, source_node, target_layer, target_node),
+            source: source_node.to_string(),
+            target: target_node.to_string(),
+            source_type: source_layer.to_string(),
+            target_type: target_layer.to_string(),
+            relation: connection_type.to_string(),
+            metadata: serde_json::Value::Object(serde_json::Map::new()),
+        };
+        
+        self.add_edge(edge)
+    }
+    
+    /// Get all layers
+    pub fn get_layers(&self) -> Vec<(String, LayerType)> {
+        self.layers.iter()
+            .map(|(k, v)| (k.clone(), *v))
+            .collect()
+    }
+    
+    /// Get layer statistics
+    pub fn get_layer_stats(&self, layer_name: &str) -> Result<(usize, usize)> {
+        if !self.layers.contains_key(layer_name) {
+            return Err(GraphError::NodeNotFound(layer_name.to_string()));
+        }
+        
+        // Count nodes and edges for this layer
+        let node_count = self.node_types.iter()
+            .filter(|(_, node_type)| node_type.as_str() == layer_name)
+            .count();
+            
+        let edge_count = self.graph.edge_ids()
+            .iter()
+            .filter(|edge_id| {
+                self.graph.get_edge(edge_id)
+                    .map(|edge| match edge {
+                        ComposedEdge::CrossType { source_type, target_type, .. } => {
+                            source_type == layer_name || target_type == layer_name
+                        }
+                        _ => true, // Count other edges too
+                    })
+                    .unwrap_or(false)
+            })
+            .count();
+            
+        Ok((node_count, edge_count))
+    }
+    
+    /// Get cross-layer connections
+    pub fn get_cross_layer_connections(&self) -> Vec<CrossLayerConnection> {
+        let mut connections = Vec::new();
+        
+        for edge_id in self.graph.edge_ids() {
+            if let Some(edge) = self.graph.get_edge(&edge_id) {
+                if let ComposedEdge::CrossType { source, target, source_type, target_type, relation, .. } = edge {
+                    connections.push(CrossLayerConnection {
+                        source_layer: source_type.clone(),
+                        source_node: source.clone(),
+                        target_layer: target_type.clone(),
+                        target_node: target.clone(),
+                        connection_type: relation.clone(),
+                    });
+                }
+            }
+        }
+        
+        connections
+    }
+    
     /// Get the underlying graph
     pub fn graph(&self) -> &EventGraph<ComposedNode, ComposedEdge> {
         &self.graph
@@ -348,6 +455,21 @@ impl ComposedGraph {
     pub fn graph_mut(&mut self) -> &mut EventGraph<ComposedNode, ComposedEdge> {
         &mut self.graph
     }
+}
+
+/// Cross-layer connection information
+#[derive(Debug, Clone)]
+pub struct CrossLayerConnection {
+    /// Source layer name
+    pub source_layer: String,
+    /// Source node ID
+    pub source_node: String,
+    /// Target layer name
+    pub target_layer: String,
+    /// Target node ID
+    pub target_node: String,
+    /// Connection type
+    pub connection_type: String,
 }
 
 impl Default for ComposedGraph {

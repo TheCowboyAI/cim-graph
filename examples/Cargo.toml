@@ -1,0 +1,37 @@
+[package]
+name = "cim-graph-examples"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+cim-graph = { path = ".." }
+serde_json = "1.0"
+uuid = "1.4"
+
+[[example]]
+name = "ipld_example"
+path = "ipld_example.rs"
+
+[[example]]
+name = "context_example"
+path = "context_example.rs"
+
+[[example]]
+name = "workflow_example"
+path = "workflow_example.rs"
+
+[[example]]
+name = "concept_example"
+path = "concept_example.rs"
+
+[[example]]
+name = "composed_example"
+path = "composed_example.rs"
+
+[[example]]
+name = "serialization_example"
+path = "serialization_example.rs"
+
+[[example]]
+name = "algorithms_example"
+path = "algorithms_example.rs"

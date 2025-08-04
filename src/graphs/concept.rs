@@ -79,6 +79,11 @@ impl ConceptNode {
     pub fn label(&self) -> &str {
         &self.label
     }
+    
+    /// Get name (alias for label)
+    pub fn name(&self) -> &str {
+        &self.label
+    }
 }
 
 impl crate::core::Node for ConceptNode {
@@ -92,6 +97,8 @@ impl crate::core::Node for ConceptNode {
 pub enum SemanticRelation {
     /// Subclass relationship (is-a)
     SubClassOf,
+    /// Subclass relationship (alternate name)
+    IsA,
     /// Instance relationship (instance-of)
     InstanceOf,
     /// Part-whole relationship (part-of)
@@ -102,23 +109,51 @@ pub enum SemanticRelation {
     HasRange,
     /// Equivalence
     EquivalentTo,
+    /// Object property
+    HasProperty,
     /// Disjointness
     DisjointWith,
+    /// Contradiction
+    Contradicts,
+    /// Causes relationship
+    Causes,
+    /// Treats relationship
+    Treats,
     /// Custom relation
     Custom,
+}
+
+impl std::fmt::Display for SemanticRelation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SemanticRelation::SubClassOf => write!(f, "subClassOf"),
+            SemanticRelation::IsA => write!(f, "isA"),
+            SemanticRelation::InstanceOf => write!(f, "instanceOf"),
+            SemanticRelation::PartOf => write!(f, "partOf"),
+            SemanticRelation::HasDomain => write!(f, "hasDomain"),
+            SemanticRelation::HasRange => write!(f, "hasRange"),
+            SemanticRelation::EquivalentTo => write!(f, "equivalentTo"),
+            SemanticRelation::HasProperty => write!(f, "hasProperty"),
+            SemanticRelation::DisjointWith => write!(f, "disjointWith"),
+            SemanticRelation::Contradicts => write!(f, "contradicts"),
+            SemanticRelation::Causes => write!(f, "causes"),
+            SemanticRelation::Treats => write!(f, "treats"),
+            SemanticRelation::Custom => write!(f, "custom"),
+        }
+    }
 }
 
 /// Edge representing a semantic relationship
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConceptEdge {
     /// Unique identifier
-    id: String,
+    pub id: String,
     /// Source concept
-    source: String,
+    pub source: String,
     /// Target concept
-    target: String,
+    pub target: String,
     /// Type of relation
-    relation: SemanticRelation,
+    pub relation: SemanticRelation,
     /// Relation label (for custom relations)
     label: String,
     /// Confidence or weight
@@ -215,7 +250,7 @@ pub struct ConceptGraph {
 
 /// Simple inference rule
 #[derive(Debug, Clone)]
-struct InferenceRule {
+pub struct InferenceRule {
     name: String,
     condition: fn(&ConceptGraph, &str, &str) -> bool,
     conclusion: fn(&str, &str) -> (String, String, SemanticRelation),
@@ -283,15 +318,25 @@ impl ConceptGraph {
     }
     
     /// Add a concept
-    pub fn add_concept(&mut self, concept: ConceptNode) -> Result<String> {
+    pub fn add_concept(&mut self, id: &str, name: &str, properties: serde_json::Value) -> Result<String> {
+        let mut concept = ConceptNode::new(id, name, ConceptType::Class);
+        
+        // Add properties from JSON
+        if let Some(obj) = properties.as_object() {
+            for (key, value) in obj {
+                concept.add_property(key, value.clone());
+            }
+        }
+        
         self.graph.add_node(concept)
     }
     
     /// Add a semantic relationship
-    pub fn add_relation(&mut self, relation: ConceptEdge) -> Result<String> {
+    pub fn add_relation(&mut self, from: &str, to: &str, relation: SemanticRelation) -> Result<String> {
         // Clear inferred cache when new relations are added
         self.inferred.clear();
-        self.graph.add_edge(relation)
+        let edge = ConceptEdge::new(from, to, relation);
+        self.graph.add_edge(edge)
     }
     
     /// Check if a relation exists (including inferred)
@@ -433,6 +478,54 @@ impl ConceptGraph {
         }
         
         violations
+    }
+    
+    /// Add a rule
+    pub fn add_rule(&mut self, rule: InferenceRule) {
+        self.rules.push(rule);
+    }
+    
+    /// Get all rules
+    pub fn rules(&self) -> &[InferenceRule] {
+        &self.rules
+    }
+    
+    /// Apply inference rules and return count of new inferences
+    pub fn apply_inference(&mut self) -> usize {
+        // For now, just return 0 as we haven't implemented full inference
+        // In a real implementation, this would apply rules and generate new relations
+        0
+    }
+    
+    /// Get relations for a concept
+    pub fn get_relations(&self, concept_id: &str) -> Vec<(String, SemanticRelation)> {
+        let mut relations = Vec::new();
+        
+        // Get direct relations
+        if let Ok(edges) = self.graph.edges_from(concept_id) {
+            for edge_id in edges {
+                if let Some(edge) = self.graph.get_edge(&edge_id) {
+                    relations.push((edge.target.clone(), edge.relation));
+                }
+            }
+        }
+        
+        relations
+    }
+    
+    /// Get inferred relations for a concept
+    pub fn get_inferred(&self, concept_id: &str) -> Vec<(String, SemanticRelation)> {
+        self.inferred.get(concept_id)
+            .cloned()
+            .unwrap_or_default()
+    }
+    
+    /// Get all concepts
+    pub fn get_all_concepts(&self) -> Vec<&ConceptNode> {
+        self.graph.node_ids()
+            .iter()
+            .filter_map(|id| self.graph.get_node(id))
+            .collect()
     }
     
     /// Get the underlying graph

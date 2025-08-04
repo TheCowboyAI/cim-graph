@@ -28,3 +28,14 @@ coverage/
 # Temporary files
 *.tmp
 temp/
+
+# Release artifacts
+*.tar.gz
+*.zip
+
+# CI/CD
+.github-token
+
+# Backup files
+*.backup
+*.bak

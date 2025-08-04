@@ -2,8 +2,9 @@
 //! 
 //! Content-addressed graph where nodes are identified by their content hash (CID)
 
-use crate::core::{EventGraph, EventHandler, GraphBuilder, GraphType};
+use crate::core::{EventGraph, EventHandler, GraphBuilder, GraphType, Node, Edge};
 use crate::error::{GraphError, Result};
+use crate::serde_support::{GraphSerialize, SerializedGraph, SerializedNode, SerializedEdge, GraphMetadata};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -246,6 +247,78 @@ impl Default for IpldGraph {
     }
 }
 
+impl GraphSerialize for IpldGraph {
+    fn to_serialized(&self) -> Result<SerializedGraph> {
+        let mut nodes = Vec::new();
+        let mut edges = Vec::new();
+        
+        // Serialize nodes
+        for node_id in self.graph.node_ids() {
+            if let Some(node) = self.graph.get_node(&node_id) {
+                nodes.push(SerializedNode {
+                    id: node.id(),
+                    node_type: Some("ipld".to_string()),
+                    data: serde_json::to_value(node)?,
+                });
+            }
+        }
+        
+        // Serialize edges
+        for edge_id in self.graph.edge_ids() {
+            if let Some(edge) = self.graph.get_edge(&edge_id) {
+                edges.push(SerializedEdge {
+                    id: edge.id(),
+                    source: edge.source(),
+                    target: edge.target(),
+                    edge_type: Some("ipld".to_string()),
+                    data: serde_json::to_value(edge)?,
+                });
+            }
+        }
+        
+        // Serialize content store
+        let extra_data = serde_json::to_value(&self.content_store)?;
+        
+        Ok(SerializedGraph {
+            graph_type: GraphType::IpldGraph,
+            metadata: GraphMetadata::default(),
+            nodes,
+            edges,
+            extra_data: Some(extra_data),
+        })
+    }
+    
+    fn from_serialized(serialized: SerializedGraph) -> Result<Self> {
+        if serialized.graph_type != GraphType::IpldGraph {
+            return Err(GraphError::TypeMismatch {
+                expected: "IpldGraph".to_string(),
+                actual: format!("{:?}", serialized.graph_type),
+            });
+        }
+        
+        let mut graph = IpldGraph::new();
+        
+        // Deserialize content store if present
+        if let Some(extra_data) = serialized.extra_data {
+            graph.content_store = serde_json::from_value(extra_data)?;
+        }
+        
+        // Add nodes
+        for node_data in serialized.nodes {
+            let node: IpldNode = serde_json::from_value(node_data.data)?;
+            graph.graph.add_node(node)?;
+        }
+        
+        // Add edges
+        for edge_data in serialized.edges {
+            let edge: IpldEdge = serde_json::from_value(edge_data.data)?;
+            graph.graph.add_edge(edge)?;
+        }
+        
+        Ok(graph)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -317,5 +390,35 @@ mod tests {
         assert!(visited.contains(&child1));
         assert!(visited.contains(&child2));
         assert!(visited.contains(&grandchild));
+    }
+    
+    #[test]
+    fn test_serialization() {
+        let mut graph = IpldGraph::new();
+        
+        // Add some content
+        let data1 = serde_json::json!({"type": "file", "name": "test.txt"});
+        let data2 = serde_json::json!({"type": "folder", "name": "documents"});
+        
+        let cid1 = graph.add_content(data1).unwrap();
+        let cid2 = graph.add_content(data2).unwrap();
+        graph.add_link(&cid2, &cid1, "contains").unwrap();
+        
+        // Serialize to JSON
+        let json = graph.to_json().unwrap();
+        
+        // Deserialize back
+        let restored = IpldGraph::from_json(&json).unwrap();
+        
+        // Verify content
+        assert_eq!(restored.graph().node_count(), 2);
+        assert_eq!(restored.graph().edge_count(), 1);
+        
+        // Check content is preserved
+        let content1 = restored.get_content(&cid1).unwrap();
+        assert_eq!(content1["name"], "test.txt");
+        
+        let content2 = restored.get_content(&cid2).unwrap();
+        assert_eq!(content2["name"], "documents");
     }
 }

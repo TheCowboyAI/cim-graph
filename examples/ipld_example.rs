@@ -3,7 +3,8 @@
 //! This example demonstrates how to use IpldGraph to create a content-addressed
 //! file system structure similar to IPFS.
 
-use cim_graph::graphs::ipld::IpldGraph;
+use cim_graph::graphs::IpldGraph;
+use cim_graph::graphs::ipld::Cid;
 use serde_json::json;
 
 fn main() {
@@ -102,7 +103,7 @@ fn main() {
     println!("Total edges: {}", graph.graph().edge_count());
 }
 
-fn display_tree(graph: &IpldGraph, cid: &cim_graph::graphs::ipld::Cid, depth: usize) {
+fn display_tree(graph: &IpldGraph, cid: &Cid, depth: usize) {
     let indent = "  ".repeat(depth);
     
     if let Some(node) = graph.get_node(cid) {
