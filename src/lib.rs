@@ -10,10 +10,11 @@
 
 pub mod core;
 pub mod error;
+pub mod graphs;
 pub mod types;
 
 // Re-export commonly used types
-pub use crate::core::{Edge, Graph, GraphBuilder, Node};
+pub use crate::core::{Edge, EventGraph, EventHandler, Graph, GraphBuilder, GraphEvent, Node};
 pub use crate::error::{GraphError, Result};
 
 #[cfg(test)]

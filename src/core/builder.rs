@@ -1,16 +1,18 @@
 //! Graph builder for fluent graph construction
 
 use crate::core::graph::BasicGraph;
-use crate::core::{Edge, Graph, GraphType, Node};
+use crate::core::petgraph_impl::EventGraph;
+use crate::core::{Edge, EventHandler, Graph, GraphType, Node};
 use crate::error::Result;
 use std::marker::PhantomData;
+use std::sync::Arc;
 
 /// Builder for creating graphs with proper initialization
-#[derive(Debug)]
 pub struct GraphBuilder<N: Node, E: Edge> {
     graph_type: GraphType,
     name: Option<String>,
     description: Option<String>,
+    event_handlers: Vec<Arc<dyn EventHandler>>,
     _phantom: PhantomData<(N, E)>,
 }
 
@@ -21,6 +23,7 @@ impl<N: Node, E: Edge> GraphBuilder<N, E> {
             graph_type: GraphType::Generic,
             name: None,
             description: None,
+            event_handlers: Vec::new(),
             _phantom: PhantomData,
         }
     }
@@ -42,8 +45,14 @@ impl<N: Node, E: Edge> GraphBuilder<N, E> {
         self.description = Some(description.into());
         self
     }
+    
+    /// Add an event handler
+    pub fn add_handler(mut self, handler: Arc<dyn EventHandler>) -> Self {
+        self.event_handlers.push(handler);
+        self
+    }
 
-    /// Build the graph
+    /// Build a basic graph (for backwards compatibility)
     pub fn build(self) -> Result<BasicGraph<N, E>> {
         let mut graph = BasicGraph::new(self.graph_type);
 
@@ -53,6 +62,30 @@ impl<N: Node, E: Edge> GraphBuilder<N, E> {
 
         if let Some(description) = self.description {
             graph.metadata_mut().description = Some(description);
+        }
+
+        Ok(graph)
+    }
+    
+    /// Build an event-driven graph using petgraph
+    pub fn build_event(self) -> Result<EventGraph<N, E>> 
+    where 
+        N: Clone,
+        E: Clone,
+    {
+        let mut graph = EventGraph::new(self.graph_type);
+
+        if let Some(name) = self.name {
+            graph.metadata_mut().name = Some(name);
+        }
+
+        if let Some(description) = self.description {
+            graph.metadata_mut().description = Some(description);
+        }
+        
+        // Add event handlers
+        for handler in self.event_handlers {
+            graph.add_handler(handler);
         }
 
         Ok(graph)

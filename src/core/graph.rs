@@ -97,10 +97,13 @@ pub trait Graph: Sized {
     fn remove_node(&mut self, node_id: &str) -> Result<Self::Node>;
 
     /// Add an edge between two nodes
-    fn add_edge(&mut self, from: &str, to: &str, edge: Self::Edge) -> Result<String>;
+    fn add_edge(&mut self, edge: Self::Edge) -> Result<String>;
 
     /// Remove an edge between nodes
     fn remove_edge(&mut self, edge_id: &str) -> Result<Self::Edge>;
+    
+    /// Get all edges between two nodes
+    fn edges_between(&self, from: &str, to: &str) -> Vec<&Self::Edge>;
 
     /// Get a node by ID
     fn get_node(&self, node_id: &str) -> Option<&Self::Node>;
@@ -231,33 +234,31 @@ impl<N: Node, E: Edge> Graph for BasicGraph<N, E> {
         Ok(node)
     }
 
-    fn add_edge(&mut self, from: &str, to: &str, edge: Self::Edge) -> Result<String> {
+    fn add_edge(&mut self, edge: Self::Edge) -> Result<String> {
+        let edge_id = edge.id();
+        let from = edge.source();
+        let to = edge.target();
+        
         // Verify nodes exist
-        if !self.nodes.contains_key(from) {
+        if !self.nodes.contains_key(&from) {
             return Err(GraphError::NodeNotFound(from.to_string()));
         }
-        if !self.nodes.contains_key(to) {
+        if !self.nodes.contains_key(&to) {
             return Err(GraphError::NodeNotFound(to.to_string()));
         }
 
-        // Check for duplicate edge
-        let edge_exists = self
-            .edges
-            .values()
-            .any(|e| e.source() == from && e.target() == to);
-
-        if edge_exists {
+        // Check for duplicate edge ID
+        if self.edges.contains_key(&edge_id) {
             return Err(GraphError::DuplicateEdge {
                 from: from.to_string(),
                 to: to.to_string(),
             });
         }
 
-        let edge_id = edge.id();
         self.edges.insert(edge_id.clone(), edge);
 
         // Update adjacency
-        if let Some(adj) = self.adjacency.get_mut(from) {
+        if let Some(adj) = self.adjacency.get_mut(&from) {
             adj.push(to.to_string());
         }
 
@@ -278,6 +279,13 @@ impl<N: Node, E: Edge> Graph for BasicGraph<N, E> {
 
         self.metadata.updated_at = chrono::Utc::now();
         Ok(edge)
+    }
+    
+    fn edges_between(&self, from: &str, to: &str) -> Vec<&Self::Edge> {
+        self.edges
+            .values()
+            .filter(|e| e.source() == from && e.target() == to)
+            .collect()
     }
 
     fn get_node(&self, node_id: &str) -> Option<&Self::Node> {
