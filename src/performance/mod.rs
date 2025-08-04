@@ -214,7 +214,6 @@ impl<N: Default> NodePool<N> {
 /// Parallel graph operations using rayon
 pub mod parallel {
     use super::*;
-    use rayon::prelude::*;
     
     /// Parallel BFS traversal
     pub fn parallel_bfs<F>(

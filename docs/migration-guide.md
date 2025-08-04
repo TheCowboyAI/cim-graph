@@ -4,12 +4,23 @@ This guide helps you migrate from other graph libraries to CIM Graph, providing 
 
 ## Table of Contents
 
-1. [Migrating from Petgraph](#migrating-from-petgraph)
-2. [Migrating from NetworkX (Python)](#migrating-from-networkx-python)
-3. [Migrating from JGraphT (Java)](#migrating-from-jgrapht-java)
-4. [Migrating from Boost Graph (C++)](#migrating-from-boost-graph-c)
-5. [Common Migration Patterns](#common-migration-patterns)
-6. [Performance Comparison](#performance-comparison)
+1. [Version Migration](#version-migration)
+2. [Migrating from Petgraph](#migrating-from-petgraph)
+3. [Migrating from NetworkX (Python)](#migrating-from-networkx-python)
+4. [Migrating from JGraphT (Java)](#migrating-from-jgrapht-java)
+5. [Migrating from Boost Graph (C++)](#migrating-from-boost-graph-c)
+6. [Common Migration Patterns](#common-migration-patterns)
+7. [Performance Comparison](#performance-comparison)
+
+## Version Migration
+
+### v0.1.0 (Initial Release)
+
+This is the initial public release of CIM Graph. No migration needed from previous versions.
+
+### Future Versions
+
+Breaking changes will be documented here with migration instructions.
 
 ## Migrating from Petgraph
 
