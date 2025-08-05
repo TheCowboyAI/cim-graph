@@ -1,6 +1,6 @@
 //! Composed graph - multi-domain compositions (event-driven projection)
 
-use serde::{Deserialize, Serialize};
+// Projections are ephemeral - no serialization
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
@@ -14,7 +14,7 @@ pub type ComposedGraph = GenericGraphProjection<ComposedNode, ComposedEdge>;
 pub type ComposedProjection = ComposedGraph;
 
 /// Type of graph being composed
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum GraphDomain {
     /// IPLD graph reference
     Ipld { graph_id: Uuid },
@@ -29,7 +29,7 @@ pub enum GraphDomain {
 }
 
 /// Type of composed node
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ComposedNodeType {
     /// Reference to a graph
     GraphReference { domain: GraphDomain },
@@ -44,7 +44,7 @@ pub enum ComposedNodeType {
 }
 
 /// Composed node represents elements from multiple graph domains
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct ComposedNode {
     pub id: String,
     pub node_type: ComposedNodeType,
@@ -130,7 +130,7 @@ impl Node for ComposedNode {
 }
 
 /// Type of composed edge
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ComposedEdgeType {
     /// Cross-graph link
     CrossGraphLink {
@@ -150,7 +150,7 @@ pub enum ComposedEdgeType {
 }
 
 /// Composed edge represents relationships across graph domains
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct ComposedEdge {
     pub id: String,
     pub source: String,

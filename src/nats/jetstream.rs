@@ -3,7 +3,7 @@
 //! Provides persistent event storage using NATS JetStream
 
 use crate::error::{GraphError, Result};
-use crate::events::{GraphEvent, EventPayload};
+use crate::events::{GraphEvent, EventPayload, build_event_subject, build_graph_subscription, GraphType as SubjectGraphType, EventType};
 use crate::core::ipld_chain::Cid;
 use async_nats::jetstream::{self, consumer::PullConsumer, stream::Stream};
 use futures::StreamExt;
@@ -31,6 +31,9 @@ pub enum NatsError {
     
     #[error("Serialization error: {0}")]
     SerializationError(String),
+    
+    #[error("Subscription error: {0}")]
+    SubscriptionError(String),
 }
 
 impl From<NatsError> for GraphError {
@@ -172,29 +175,21 @@ impl JetStreamEventStore {
     
     /// Publish an event to JetStream
     pub async fn publish_event(&self, event: GraphEvent, cid: Option<Cid>) -> Result<u64> {
-        // Determine event type and graph type
-        let (event_type, graph_type) = match &event.payload {
-            EventPayload::Generic(p) => (p.event_type.clone(), "generic".to_string()),
-            EventPayload::Ipld(_) => ("ipld_event".to_string(), "ipld".to_string()),
-            EventPayload::Context(_) => ("context_event".to_string(), "context".to_string()),
-            EventPayload::Workflow(_) => ("workflow_event".to_string(), "workflow".to_string()),
-            EventPayload::Concept(_) => ("concept_event".to_string(), "concept".to_string()),
-            EventPayload::Composed(_) => ("composed_event".to_string(), "composed".to_string()),
-        };
+        // Determine event type and graph type from payload
+        let (event_type, graph_type) = determine_event_type(&event.payload);
         
-        // Create subject: cim.graph.{graph_type}.{aggregate_id}
-        let subject = format!(
-            "{}.{}.{}",
-            self.config.subject_prefix,
-            graph_type,
-            event.aggregate_id
-        );
+        // Build subject using cim-subject
+        let subject = build_event_subject(graph_type, event.aggregate_id, event_type);
+        
+        // For compatibility, also store string representations
+        let event_type_str = format!("{:?}", event_type).to_lowercase();
+        let graph_type_str = format!("{:?}", graph_type).to_lowercase();
         
         // Create headers
         let headers = EventHeaders {
             aggregate_id: event.aggregate_id,
-            event_type: event_type.clone(),
-            graph_type: graph_type.clone(),
+            event_type: event_type_str.clone(),
+            graph_type: graph_type_str.clone(),
             correlation_id: event.correlation_id,
             causation_id: event.causation_id,
         };
@@ -215,8 +210,8 @@ impl JetStreamEventStore {
         let mut nats_headers = async_nats::HeaderMap::new();
         nats_headers.insert("Cim-Event-Id", event.event_id.to_string());
         nats_headers.insert("Cim-Aggregate-Id", event.aggregate_id.to_string());
-        nats_headers.insert("Cim-Event-Type", event_type);
-        nats_headers.insert("Cim-Graph-Type", graph_type);
+        nats_headers.insert("Cim-Event-Type", event_type_str.clone());
+        nats_headers.insert("Cim-Graph-Type", graph_type_str);
         nats_headers.insert("Cim-Correlation-Id", event.correlation_id.to_string());
         
         if let Some(causation_id) = event.causation_id {
@@ -330,12 +325,32 @@ impl JetStreamEventStore {
     
     /// Subscribe to events for real-time updates
     pub async fn subscribe_to_aggregate(&self, aggregate_id: Uuid) -> Result<EventSubscription> {
-        let filter_subject = format!("{}.*.{}", self.config.subject_prefix, aggregate_id);
+        // Use wildcard to subscribe to all event types for this aggregate
+        let filter_subject = build_graph_subscription(SubjectGraphType::Composed, aggregate_id);
         
         let subscriber = self.client
             .subscribe(filter_subject)
             .await
             .map_err(|e| NatsError::JetStreamError(e.to_string()))?;
+        
+        Ok(EventSubscription {
+            subscriber,
+            aggregate_id,
+        })
+    }
+    
+    /// Subscribe to events for a specific graph type and aggregate
+    pub async fn subscribe_to_graph_type(
+        &self,
+        graph_type: SubjectGraphType,
+        aggregate_id: Uuid,
+    ) -> Result<EventSubscription> {
+        let filter_subject = build_graph_subscription(graph_type, aggregate_id);
+        
+        let subscriber = self.client
+            .subscribe(filter_subject)
+            .await
+            .map_err(|e| NatsError::SubscriptionError(e.to_string()))?;
         
         Ok(EventSubscription {
             subscriber,
@@ -461,6 +476,54 @@ impl AsyncEventStore for JetStreamEventStore {
 impl EventStream for EventSubscription {
     async fn next(&mut self) -> Result<Option<GraphEvent>> {
         self.next().await
+    }
+}
+
+/// Determine event type and graph type from payload
+fn determine_event_type(payload: &EventPayload) -> (EventType, SubjectGraphType) {
+    match payload {
+        EventPayload::Generic(_) => (EventType::Updated, SubjectGraphType::Composed),
+        EventPayload::Ipld(p) => {
+            use crate::events::IpldPayload::*;
+            match p {
+                CidAdded { .. } => (EventType::NodeAdded, SubjectGraphType::Ipld),
+                CidLinkAdded { .. } => (EventType::EdgeAdded, SubjectGraphType::Ipld),
+                CidPinned { .. } | CidUnpinned { .. } => (EventType::Updated, SubjectGraphType::Ipld),
+            }
+        }
+        EventPayload::Context(p) => {
+            use crate::events::ContextPayload::*;
+            match p {
+                BoundedContextCreated { .. } => (EventType::Created, SubjectGraphType::Context),
+                AggregateAdded { .. } | EntityAdded { .. } => (EventType::NodeAdded, SubjectGraphType::Context),
+                ValueObjectAttached { .. } | RelationshipEstablished { .. } => (EventType::Updated, SubjectGraphType::Context),
+            }
+        }
+        EventPayload::Workflow(p) => {
+            use crate::events::WorkflowPayload::*;
+            match p {
+                WorkflowDefined { .. } => (EventType::Created, SubjectGraphType::Workflow),
+                StateAdded { .. } => (EventType::NodeAdded, SubjectGraphType::Workflow),
+                TransitionAdded { .. } => (EventType::EdgeAdded, SubjectGraphType::Workflow),
+                StateTransitioned { .. } => (EventType::StateChanged, SubjectGraphType::Workflow),
+                _ => (EventType::Updated, SubjectGraphType::Workflow),
+            }
+        }
+        EventPayload::Concept(p) => {
+            use crate::events::ConceptPayload::*;
+            match p {
+                ConceptDefined { .. } => (EventType::Created, SubjectGraphType::Concept),
+                RelationAdded { .. } => (EventType::EdgeAdded, SubjectGraphType::Concept),
+                PropertiesAdded { .. } | PropertyInferred { .. } => (EventType::Updated, SubjectGraphType::Concept),
+            }
+        }
+        EventPayload::Composed(p) => {
+            use crate::events::ComposedPayload::*;
+            match p {
+                SubGraphAdded { .. } => (EventType::NodeAdded, SubjectGraphType::Composed),
+                CrossGraphLinkCreated { .. } => (EventType::EdgeAdded, SubjectGraphType::Composed),
+            }
+        }
     }
 }
 

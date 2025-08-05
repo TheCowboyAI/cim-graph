@@ -23,21 +23,48 @@
 //! ## Example
 //!
 //! ```rust
-//! use cim_graph::graphs::workflow::{WorkflowGraph, WorkflowNode, StateType};
-//! use cim_graph::Graph;
+//! use cim_graph::{
+//!     core::{ProjectionEngine, GraphProjection},
+//!     events::{GraphEvent, EventPayload, WorkflowPayload},
+//!     graphs::{WorkflowNode, WorkflowEdge, WorkflowProjection},
+//! };
+//! use uuid::Uuid;
 //!
 //! # fn main() -> cim_graph::Result<()> {
-//! let mut workflow = WorkflowGraph::new();
+//! // Create events to build a workflow
+//! let workflow_id = Uuid::new_v4();
+//! let events = vec![
+//!     GraphEvent {
+//!         event_id: Uuid::new_v4(),
+//!         aggregate_id: workflow_id,
+//!         correlation_id: Uuid::new_v4(),
+//!         causation_id: None,
+//!         payload: EventPayload::Workflow(WorkflowPayload::WorkflowDefined {
+//!             workflow_id,
+//!             name: "Example Workflow".to_string(),
+//!             version: "1.0.0".to_string(),
+//!         }),
+//!     },
+//!     GraphEvent {
+//!         event_id: Uuid::new_v4(),
+//!         aggregate_id: workflow_id,
+//!         correlation_id: Uuid::new_v4(),
+//!         causation_id: None,
+//!         payload: EventPayload::Workflow(WorkflowPayload::StateAdded {
+//!             workflow_id,
+//!             state_id: "start".to_string(),
+//!             state_type: "initial".to_string(),
+//!         }),
+//!     },
+//! ];
 //!
-//! // Add states
-//! workflow.add_state(WorkflowNode::new("start", "Start", StateType::Initial))?;
-//! workflow.add_state(WorkflowNode::new("end", "End", StateType::Final))?;
-//!
-//! // Add transition
-//! workflow.add_transition("start", "end", "complete")?;
-//!
-//! // Query the graph
-//! assert_eq!(workflow.graph().node_count(), 2);
+//! // Build projection from events
+//! let engine = ProjectionEngine::<WorkflowNode, WorkflowEdge>::new();
+//! let projection = engine.project(events);
+//! 
+//! // Query the projection
+//! assert_eq!(projection.node_count(), 1);
+//! assert_eq!(projection.version(), 2); // Two events processed
 //! # Ok(())
 //! # }
 //! ```
@@ -68,6 +95,9 @@ pub mod serde_support;
 /// Performance optimizations
 pub mod performance;
 
+/// Bounded contexts and domain boundaries
+pub mod contexts;
+
 /// NATS JetStream integration
 #[cfg(feature = "nats")]
 #[cfg_attr(docsrs, doc(cfg(feature = "nats")))]
@@ -92,7 +122,7 @@ mod tests {
     #[test]
     fn test_library_imports() {
         // Ensure all main types are accessible
-        fn _test_graph_trait<G: Graph>(_graph: &G) {}
+        fn _test_projection_trait<G: GraphProjection>(_projection: &G) {}
         fn _test_node_trait<N: Node>(_node: &N) {}
         fn _test_edge_trait<E: Edge>(_edge: &E) {}
     }
@@ -318,25 +348,34 @@ mod tests {
     }
     
     #[test]
-    fn test_serialization() {
-        use crate::serde_support::GraphSerialize;
-        use crate::graphs::ipld::IpldGraph;
+    fn test_event_serialization() {
+        use crate::serde_support::{serialize_events, deserialize_events};
+        use crate::events::{GraphEvent, EventPayload, IpldPayload};
+        use uuid::Uuid;
         
-        let mut graph = IpldGraph::new();
+        // Create IPLD events
+        let events = vec![
+            GraphEvent {
+                event_id: Uuid::new_v4(),
+                aggregate_id: Uuid::new_v4(),
+                correlation_id: Uuid::new_v4(),
+                causation_id: None,
+                payload: EventPayload::Ipld(IpldPayload::CidAdded {
+                    cid: "Qm123".to_string(),
+                    codec: "dag-cbor".to_string(),
+                    size: 256,
+                    data: serde_json::json!({"test": "data"}),
+                }),
+            },
+        ];
         
-        // Add some data
-        let cid1 = graph.add_content(serde_json::json!({"data": "test1"})).unwrap();
-        let cid2 = graph.add_content(serde_json::json!({"data": "test2"})).unwrap();
-        graph.add_link(&cid1, &cid2, "next").unwrap();
+        // Serialize events (not the graph!)
+        let json = serialize_events(&events).unwrap();
+        assert!(json.contains("CidAdded"));
         
-        // Serialize to JSON
-        let json = graph.to_json().unwrap();
-        assert!(json.contains("\"IpldGraph\""));
-        
-        // Deserialize from JSON
-        let deserialized = IpldGraph::from_json(&json).unwrap();
-        assert_eq!(deserialized.graph().node_count(), 2);
-        assert_eq!(deserialized.graph().edge_count(), 1);
+        // Deserialize events
+        let deserialized = deserialize_events(&json).unwrap();
+        assert_eq!(deserialized.len(), 1);
     }
     
     #[test]

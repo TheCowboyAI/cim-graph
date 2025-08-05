@@ -4,11 +4,11 @@
 
 use crate::core::{GraphProjection, Node, Edge};
 use crate::core::projection_engine::GenericGraphProjection;
-use serde::{Deserialize, Serialize};
+// Projections are ephemeral - no serialization
 use uuid::Uuid;
 
 /// Context node types
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub enum ContextNodeType {
     BoundedContext,
     Aggregate,
@@ -17,7 +17,7 @@ pub enum ContextNodeType {
 }
 
 /// Context node
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct ContextNode {
     pub id: String,
     pub node_type: ContextNodeType,
@@ -38,7 +38,7 @@ impl Default for ContextNodeType {
 }
 
 /// Context edge - relationships in DDD
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct ContextEdge {
     pub id: String,
     pub source: String,

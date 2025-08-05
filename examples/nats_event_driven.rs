@@ -8,7 +8,8 @@
 //! - Handle real-time subscriptions
 
 use cim_graph::{
-    events::{GraphEvent, EventPayload, GenericPayload, WorkflowPayload},
+    events::{GraphEvent, EventPayload, GenericPayload, WorkflowPayload,
+             build_event_subject, build_type_subscription, GraphType, EventType},
     nats::{JetStreamEventStore, JetStreamConfig},
     core::{
         GraphStateMachine, IpldChainAggregate, PolicyEngine, PolicyContext,
@@ -27,7 +28,7 @@ async fn main() -> Result<()> {
     let config = JetStreamConfig {
         server_url: "localhost:4222".to_string(),
         stream_name: "CIM_GRAPH_DEMO".to_string(),
-        subject_prefix: "cim.demo".to_string(),
+        subject_prefix: "cim.graph".to_string(), // Using standard prefix
         max_age_secs: 3600, // 1 hour for demo
         enable_dedup: true,
     };
@@ -215,6 +216,33 @@ async fn main() -> Result<()> {
     println!("   ✓ Found {} events with correlation ID {}", 
              correlated.len(), correlation_id);
     
+    // 11. Demonstrate subject patterns
+    println!("\n11. Subject patterns with cim-subject:");
+    
+    // Show how subjects are built for different event types
+    let created_subject = build_event_subject(
+        GraphType::Workflow,
+        workflow_id,
+        EventType::Created
+    );
+    println!("   - Workflow created: {}", created_subject);
+    
+    let state_changed_subject = build_event_subject(
+        GraphType::Workflow,
+        workflow_id,
+        EventType::StateChanged
+    );
+    println!("   - State changed: {}", state_changed_subject);
+    
+    // Show subscription patterns
+    let type_sub = build_type_subscription(GraphType::Workflow);
+    println!("   - All workflows: {}", type_sub);
+    
+    println!("\n   Subject hierarchy:");
+    println!("   - cim.graph.{type}.{id}.{event}");
+    println!("   - Enables precise event routing");
+    println!("   - Supports wildcard subscriptions");
+    
     println!("\n✨ Event-driven architecture demonstration complete!");
     println!("\nKey takeaways:");
     println!("- All state changes happen through events");
@@ -222,6 +250,7 @@ async fn main() -> Result<()> {
     println!("- Projections are built by replaying events");
     println!("- Policies automate CID generation and validation");
     println!("- Real-time subscriptions enable reactive systems");
+    println!("- cim-subject provides type-safe event routing");
     
     Ok(())
 }

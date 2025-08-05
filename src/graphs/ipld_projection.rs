@@ -7,12 +7,14 @@ use crate::core::{GraphProjection, Node, Edge, GraphType};
 use crate::core::cim_graph::{GraphEvent, EventData, GraphCommand};
 use crate::core::projection_engine::{ProjectionEngine, GenericGraphProjection};
 use crate::error::Result;
+// Projections are ephemeral - no serialization
+// Commands still need serialization for events
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
 
 /// Content Identifier (CID) - simplified version for this implementation
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Cid(String);
 
 impl Cid {
@@ -28,7 +30,7 @@ impl Cid {
 }
 
 /// IPLD node containing content-addressed data
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct IpldNode {
     /// Content identifier (hash of the data)
     cid: Cid,
@@ -72,7 +74,7 @@ impl Node for IpldNode {
 
 
 /// IPLD edge (link between content-addressed nodes)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct IpldEdge {
     /// Edge identifier
     id: String,

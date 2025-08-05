@@ -1,143 +1,173 @@
-//! Serialization and deserialization support for graphs
+//! Serialization support for events only
 //!
-//! Provides JSON serialization/deserialization for all graph types
+//! IMPORTANT: Projections are ephemeral and should NOT be serialized.
+//! Only events should be persisted. Projections are rebuilt from events.
+//!
+//! This module now only provides serialization for:
+//! - Events (GraphEvent)
+//! - Commands (GraphCommand)
+//! - Event metadata
+//!
+//! The old graph serialization has been removed as it contradicts
+//! the event-sourcing pattern.
 
-use crate::core::{GraphType, Node, Edge};
+use crate::events::{GraphEvent, GraphCommand};
 use crate::error::{GraphError, Result};
 use serde::{Serialize, Deserialize};
-use serde_json::Value;
-use std::collections::HashMap;
+use std::path::Path;
 
-/// Serializable graph representation
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SerializedGraph {
-    /// Graph type
-    pub graph_type: GraphType,
-    /// Graph metadata
-    pub metadata: GraphMetadata,
-    /// Nodes in the graph
-    pub nodes: Vec<SerializedNode>,
-    /// Edges in the graph
-    pub edges: Vec<SerializedEdge>,
-    /// Additional graph-specific data
-    pub extra_data: Option<Value>,
+/// Serializes events to JSON
+pub fn serialize_events(events: &[GraphEvent]) -> Result<String> {
+    serde_json::to_string_pretty(events)
+        .map_err(|e| GraphError::SerializationError(format!("Failed to serialize events: {}", e)))
 }
 
-/// Serializable node representation
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SerializedNode {
-    /// Node ID
-    pub id: String,
-    /// Node type (for composed graphs)
-    pub node_type: Option<String>,
-    /// Node data
-    pub data: Value,
+/// Deserializes events from JSON
+pub fn deserialize_events(json: &str) -> Result<Vec<GraphEvent>> {
+    serde_json::from_str(json)
+        .map_err(|e| GraphError::SerializationError(format!("Failed to deserialize events: {}", e)))
 }
 
-/// Serializable edge representation
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SerializedEdge {
-    /// Edge ID
-    pub id: String,
-    /// Source node ID
-    pub source: String,
-    /// Target node ID
-    pub target: String,
-    /// Edge type (for composed graphs)
-    pub edge_type: Option<String>,
-    /// Edge data
-    pub data: Value,
+/// Saves events to a file
+pub fn save_events_to_file<P: AsRef<Path>>(events: &[GraphEvent], path: P) -> Result<()> {
+    let json = serialize_events(events)?;
+    std::fs::write(path, json)
+        .map_err(|e| GraphError::SerializationError(format!("Failed to write file: {}", e)))
 }
 
-/// Graph metadata
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GraphMetadata {
-    /// Graph name
-    pub name: Option<String>,
-    /// Graph description
-    pub description: Option<String>,
-    /// Creation timestamp
-    pub created_at: chrono::DateTime<chrono::Utc>,
-    /// Last update timestamp
-    pub updated_at: chrono::DateTime<chrono::Utc>,
-    /// Custom metadata
-    pub custom: HashMap<String, Value>,
+/// Loads events from a file
+pub fn load_events_from_file<P: AsRef<Path>>(path: P) -> Result<Vec<GraphEvent>> {
+    let json = std::fs::read_to_string(path)
+        .map_err(|e| GraphError::SerializationError(format!("Failed to read file: {}", e)))?;
+    deserialize_events(&json)
 }
 
-impl Default for GraphMetadata {
-    fn default() -> Self {
-        let now = chrono::Utc::now();
+/// Serializes a command to JSON
+pub fn serialize_command(command: &GraphCommand) -> Result<String> {
+    serde_json::to_string_pretty(command)
+        .map_err(|e| GraphError::SerializationError(format!("Failed to serialize command: {}", e)))
+}
+
+/// Deserializes a command from JSON
+pub fn deserialize_command(json: &str) -> Result<GraphCommand> {
+    serde_json::from_str(json)
+        .map_err(|e| GraphError::SerializationError(format!("Failed to deserialize command: {}", e)))
+}
+
+/// Event storage metadata
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EventStorageMetadata {
+    /// Storage version
+    pub version: String,
+    /// Number of events
+    pub event_count: usize,
+    /// First event timestamp
+    pub first_event_time: Option<chrono::DateTime<chrono::Utc>>,
+    /// Last event timestamp
+    pub last_event_time: Option<chrono::DateTime<chrono::Utc>>,
+    /// Aggregate IDs in this storage
+    pub aggregate_ids: Vec<uuid::Uuid>,
+}
+
+impl EventStorageMetadata {
+    /// Create metadata from a slice of events
+    pub fn from_events(events: &[GraphEvent]) -> Self {
+        let aggregate_ids: Vec<uuid::Uuid> = events.iter()
+            .map(|e| e.aggregate_id)
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
+        
         Self {
-            name: None,
-            description: None,
-            created_at: now,
-            updated_at: now,
-            custom: HashMap::new(),
+            version: "1.0.0".to_string(),
+            event_count: events.len(),
+            first_event_time: None, // Would need timestamps on events
+            last_event_time: None,
+            aggregate_ids,
         }
     }
 }
 
-/// Trait for types that can be serialized to/from graphs
-pub trait GraphSerialize: Sized {
-    /// Serialize the graph to a SerializedGraph
-    fn to_serialized(&self) -> Result<SerializedGraph>;
-    
-    /// Deserialize from a SerializedGraph
-    fn from_serialized(serialized: SerializedGraph) -> Result<Self>;
-    
-    /// Serialize to JSON string
-    fn to_json(&self) -> Result<String> {
-        let serialized = self.to_serialized()?;
-        serde_json::to_string_pretty(&serialized)
-            .map_err(|e| GraphError::SerializationError(e.to_string()))
+/// Event journal for persistent storage
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EventJournal {
+    /// Metadata about the journal
+    pub metadata: EventStorageMetadata,
+    /// The events in order
+    pub events: Vec<GraphEvent>,
+}
+
+impl EventJournal {
+    /// Create a new event journal
+    pub fn new(events: Vec<GraphEvent>) -> Self {
+        let metadata = EventStorageMetadata::from_events(&events);
+        Self {
+            metadata,
+            events,
+        }
     }
     
-    /// Deserialize from JSON string
-    fn from_json(json: &str) -> Result<Self> {
-        let serialized: SerializedGraph = serde_json::from_str(json)
-            .map_err(|e| GraphError::SerializationError(e.to_string()))?;
-        Self::from_serialized(serialized)
-    }
-    
-    /// Save to file
-    fn save_to_file(&self, path: &str) -> Result<()> {
-        let json = self.to_json()?;
+    /// Save journal to file
+    pub fn save_to_file<P: AsRef<Path>>(&self, path: P) -> Result<()> {
+        let json = serde_json::to_string_pretty(self)
+            .map_err(|e| GraphError::SerializationError(format!("Failed to serialize journal: {}", e)))?;
         std::fs::write(path, json)
             .map_err(|e| GraphError::SerializationError(format!("Failed to write file: {}", e)))
     }
     
-    /// Load from file
-    fn load_from_file(path: &str) -> Result<Self> {
+    /// Load journal from file
+    pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
         let json = std::fs::read_to_string(path)
             .map_err(|e| GraphError::SerializationError(format!("Failed to read file: {}", e)))?;
-        Self::from_json(&json)
+        serde_json::from_str(&json)
+            .map_err(|e| GraphError::SerializationError(format!("Failed to deserialize journal: {}", e)))
     }
 }
 
-/// Helper function to serialize a node
-pub fn serialize_node<N: Node + Serialize>(node: &N) -> Result<SerializedNode> {
-    let data = serde_json::to_value(node)
-        .map_err(|e| GraphError::SerializationError(e.to_string()))?;
-    
-    Ok(SerializedNode {
-        id: node.id(),
-        node_type: None,
-        data,
-    })
-}
-
-/// Helper function to serialize an edge
-pub fn serialize_edge<E: Edge + Serialize>(edge: &E) -> Result<SerializedEdge> {
-    let data = serde_json::to_value(edge)
-        .map_err(|e| GraphError::SerializationError(e.to_string()))?;
-    
-    Ok(SerializedEdge {
-        id: edge.id(),
-        source: edge.source(),
-        target: edge.target(),
-        edge_type: None,
-        data,
-    })
-}
 #[cfg(test)]
-mod tests;
+mod tests {
+    use super::*;
+    use crate::events::{EventPayload, WorkflowPayload};
+    use uuid::Uuid;
+    
+    #[test]
+    fn test_event_serialization() {
+        let event = GraphEvent {
+            event_id: Uuid::new_v4(),
+            aggregate_id: Uuid::new_v4(),
+            correlation_id: Uuid::new_v4(),
+            causation_id: None,
+            payload: EventPayload::Workflow(WorkflowPayload::WorkflowDefined {
+                workflow_id: Uuid::new_v4(),
+                name: "Test".to_string(),
+                version: "1.0.0".to_string(),
+            }),
+        };
+        
+        let json = serialize_events(&[event.clone()]).unwrap();
+        let deserialized = deserialize_events(&json).unwrap();
+        
+        assert_eq!(deserialized.len(), 1);
+        assert_eq!(deserialized[0].event_id, event.event_id);
+    }
+    
+    #[test]
+    fn test_event_journal() {
+        let events = vec![
+            GraphEvent {
+                event_id: Uuid::new_v4(),
+                aggregate_id: Uuid::new_v4(),
+                correlation_id: Uuid::new_v4(),
+                causation_id: None,
+                payload: EventPayload::Generic(crate::events::GenericPayload {
+                    event_type: "Test".to_string(),
+                    data: serde_json::json!({}),
+                }),
+            },
+        ];
+        
+        let journal = EventJournal::new(events.clone());
+        assert_eq!(journal.metadata.event_count, 1);
+        assert_eq!(journal.events.len(), 1);
+    }
+}

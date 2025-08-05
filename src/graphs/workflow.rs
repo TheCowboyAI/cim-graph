@@ -1,6 +1,6 @@
 //! Workflow graph - state machines (event-driven projection)
 
-use serde::{Deserialize, Serialize};
+// Projections are ephemeral - no serialization
 use std::collections::{HashMap, HashSet};
 
 pub use crate::core::projection_engine::GenericGraphProjection;
@@ -13,7 +13,7 @@ pub type WorkflowGraph = GenericGraphProjection<WorkflowNode, WorkflowEdge>;
 pub type WorkflowProjection = WorkflowGraph;
 
 /// Workflow state enumeration
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum WorkflowState {
     Draft,
     Published,
@@ -23,7 +23,7 @@ pub enum WorkflowState {
 }
 
 /// Type of workflow node
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum WorkflowNodeType {
     /// Start state
     Start,
@@ -42,7 +42,7 @@ pub enum WorkflowNodeType {
 }
 
 /// Workflow node represents a state or action in a state machine
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct WorkflowNode {
     pub id: String,
     pub node_type: WorkflowNodeType,
@@ -104,7 +104,7 @@ impl Node for WorkflowNode {
 }
 
 /// Type of workflow edge (transition)
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum WorkflowEdgeType {
     /// Normal transition
     Transition,
@@ -119,7 +119,7 @@ pub enum WorkflowEdgeType {
 }
 
 /// Workflow edge represents a transition between states
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct WorkflowEdge {
     pub id: String,
     pub source: String,

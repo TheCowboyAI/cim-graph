@@ -1,6 +1,6 @@
 //! Concept graph - semantic reasoning (event-driven projection)
 
-use serde::{Deserialize, Serialize};
+// Projections are ephemeral - no serialization
 use std::collections::HashMap;
 
 pub use crate::core::projection_engine::GenericGraphProjection;
@@ -13,7 +13,7 @@ pub type ConceptGraph = GenericGraphProjection<ConceptNode, ConceptEdge>;
 pub type ConceptProjection = ConceptGraph;
 
 /// Type of concept node
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ConceptNodeType {
     /// Core concept or idea
     Concept,
@@ -30,7 +30,7 @@ pub enum ConceptNodeType {
 }
 
 /// Concept node represents semantic knowledge
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct ConceptNode {
     pub id: String,
     pub name: String,
@@ -103,7 +103,7 @@ impl Node for ConceptNode {
 }
 
 /// Type of semantic relationship
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum RelationType {
     /// IS-A relationship (inheritance)
     IsA,
@@ -136,7 +136,7 @@ pub enum RelationType {
 }
 
 /// Concept edge represents semantic relationships
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct ConceptEdge {
     pub id: String,
     pub source: String,

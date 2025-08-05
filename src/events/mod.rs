@@ -6,6 +6,8 @@
 
 pub mod graph_events;
 pub mod command_handlers;
+pub mod subjects;
 
 pub use self::graph_events::*;
 pub use self::command_handlers::*;
+pub use self::subjects::*;
