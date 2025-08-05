@@ -23,6 +23,20 @@ pub enum GraphType {
     ComposedGraph,
 }
 
+impl GraphType {
+    /// Convert to string representation
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            GraphType::Generic => "generic",
+            GraphType::IpldGraph => "ipld",
+            GraphType::ContextGraph => "context",
+            GraphType::WorkflowGraph => "workflow",
+            GraphType::ConceptGraph => "concept",
+            GraphType::ComposedGraph => "composed",
+        }
+    }
+}
+
 /// Unique identifier for graphs
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct GraphId(pub Uuid);

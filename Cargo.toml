@@ -33,6 +33,9 @@ rustdoc-args = ["--cfg", "docsrs"]
 maintenance = { status = "actively-developed" }
 
 [dependencies]
+# CIM Domain Events
+# cim-domain = { git = "https://github.com/thecowboyai/cim-domain.git" }
+
 # Core dependencies
 thiserror = "1.0"
 serde = { version = "1.0", features = ["derive"] }
