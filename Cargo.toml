@@ -57,6 +57,7 @@ rayon = "1.7"
 [dev-dependencies]
 # Testing
 criterion = { version = "0.5", features = ["html_reports"] }
+tempfile = "3.8"
 proptest = "1.4"
 pretty_assertions = "1.4"
 

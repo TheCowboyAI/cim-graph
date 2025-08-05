@@ -386,4 +386,119 @@ mod tests {
         let cached = cache.shortest_paths.read().unwrap();
         assert!(cached.is_empty());
     }
+    
+    #[test]
+    fn test_node_pool() {
+        #[derive(Default, Debug, PartialEq)]
+        struct TestPoolNode {
+            value: i32,
+        }
+        
+        let mut pool = NodePool::<TestPoolNode>::new(5);
+        
+        // Test acquire from empty pool
+        let node1 = pool.acquire();
+        assert_eq!(node1.value, 0); // Default value
+        
+        // Test release and reacquire
+        let node2 = TestPoolNode { value: 42 };
+        pool.release(node2);
+        let reacquired = pool.acquire();
+        assert_eq!(reacquired.value, 42);
+        
+        // Test capacity limit
+        for i in 0..10 {
+            pool.release(TestPoolNode { value: i });
+        }
+        // Pool should only keep up to capacity (5)
+        let mut acquired_values = Vec::new();
+        for _ in 0..6 {
+            acquired_values.push(pool.acquire().value);
+        }
+        // Last one should be default since pool was at capacity
+        assert_eq!(acquired_values[5], 0);
+    }
+    
+    #[test]
+    fn test_parallel_bfs() {
+        use parallel::parallel_bfs;
+        use std::collections::HashMap;
+        
+        // Create a simple graph structure
+        let graph = HashMap::from([
+            ("A".to_string(), vec!["B".to_string(), "C".to_string()]),
+            ("B".to_string(), vec!["D".to_string()]),
+            ("C".to_string(), vec!["D".to_string()]),
+            ("D".to_string(), vec![]),
+        ]);
+        
+        let get_neighbors = |node: &str| -> Vec<String> {
+            graph.get(node).cloned().unwrap_or_default()
+        };
+        
+        let result = parallel_bfs(vec!["A".to_string()], get_neighbors);
+        assert_eq!(result.len(), 4);
+        assert!(result.contains(&"A".to_string()));
+        assert!(result.contains(&"B".to_string()));
+        assert!(result.contains(&"C".to_string()));
+        assert!(result.contains(&"D".to_string()));
+    }
+    
+    #[test]
+    fn test_parallel_degrees() {
+        use parallel::parallel_degrees;
+        use rayon::prelude::*;
+        use std::collections::HashMap;
+        
+        let nodes = vec!["A".to_string(), "B".to_string(), "C".to_string()];
+        let degrees = HashMap::from([
+            ("A", 3),
+            ("B", 2),
+            ("C", 1),
+        ]);
+        
+        let get_degree = |node: &str| -> usize {
+            degrees.get(node).copied().unwrap_or(0)
+        };
+        
+        let result = parallel_degrees(nodes.par_iter(), get_degree);
+        assert_eq!(result.get("A"), Some(&3));
+        assert_eq!(result.get("B"), Some(&2));
+        assert_eq!(result.get("C"), Some(&1));
+    }
+    
+    #[test]
+    fn test_perf_counter() {
+        use monitoring::PerfCounter;
+        use std::thread;
+        use std::time::Duration;
+        
+        let counter = PerfCounter::new("test_operation");
+        
+        // Test measuring operations
+        let result = counter.measure(|| {
+            thread::sleep(Duration::from_millis(10));
+            42
+        });
+        assert_eq!(result, 42);
+        
+        // Measure another operation
+        counter.measure(|| {
+            thread::sleep(Duration::from_millis(10));
+        });
+        
+        // Check average time
+        let avg = counter.average_time();
+        assert!(avg >= Duration::from_millis(10));
+        assert!(avg < Duration::from_millis(50)); // Should be reasonably close
+    }
+    
+    #[test]
+    fn test_perf_counter_empty() {
+        use monitoring::PerfCounter;
+        
+        let counter = PerfCounter::new("empty");
+        // Average of no operations should be zero
+        assert_eq!(counter.average_time(), std::time::Duration::ZERO);
+    }
 }

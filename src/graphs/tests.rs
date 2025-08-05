@@ -75,6 +75,8 @@ mod tests {
         if let Some(node) = graph.graph().get_node(&agg_id) {
             assert_eq!(node.object_type(), crate::graphs::context::DomainObjectType::AggregateRoot);
             assert_eq!(node.name(), "Order");
+        } else {
+            panic!("Expected to find aggregate node");
         }
         
         // Verify graph structure

@@ -83,4 +83,61 @@ mod tests {
         ipld_graph.add_content(json!({"test": "data"})).unwrap();
         let _serialized = ipld_graph.to_serialized().unwrap();
     }
+    
+    #[test]
+    fn test_file_operations() {
+        use tempfile::tempdir;
+        
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("test_graph.json");
+        let path_str = file_path.to_str().unwrap();
+        
+        // Create and save a graph
+        let mut graph = IpldGraph::new();
+        let cid = graph.add_content(json!({
+            "saved": "data"
+        })).unwrap();
+        
+        // Save to file
+        graph.save_to_file(path_str).unwrap();
+        assert!(file_path.exists());
+        
+        // Load from file
+        let loaded = IpldGraph::load_from_file(path_str).unwrap();
+        assert_eq!(loaded.get_content(&cid).unwrap()["saved"], "data");
+        
+        // Test error cases
+        assert!(IpldGraph::load_from_file("/nonexistent/path.json").is_err());
+        
+        // Test save error by using invalid path
+        assert!(graph.save_to_file("/invalid\0path").is_err());
+    }
+    
+    #[test]
+    fn test_helper_functions() {
+        use crate::serde_support::{serialize_node, serialize_edge};
+        use crate::core::node::GenericNode;
+        use crate::core::edge::GenericEdge;
+        use serde::Serialize;
+        
+        #[derive(Serialize, Clone, Debug)]
+        struct TestData {
+            value: i32,
+        }
+        
+        // Test serialize_node
+        let node = GenericNode::new("test-node", TestData { value: 42 });
+        let serialized_node = serialize_node(&node).unwrap();
+        assert_eq!(serialized_node.id, "test-node");
+        assert_eq!(serialized_node.data["data"]["value"], 42);
+        assert!(serialized_node.node_type.is_none());
+        
+        // Test serialize_edge
+        let edge = GenericEdge::new("src", "tgt", TestData { value: 24 });
+        let serialized_edge = serialize_edge(&edge).unwrap();
+        assert_eq!(serialized_edge.source, "src");
+        assert_eq!(serialized_edge.target, "tgt");
+        assert_eq!(serialized_edge.data["data"]["value"], 24);
+        assert!(serialized_edge.edge_type.is_none());
+    }
 }

@@ -6,8 +6,99 @@ mod tests {
     use crate::core::event::*;
     use crate::core::node::GenericNode;
     use crate::core::edge::GenericEdge;
-    use crate::core::graph::{BasicGraph, GraphType};
+    use crate::core::graph::{BasicGraph, GraphType, GraphId};
     use std::sync::{Arc, Mutex};
+    use serde_json;
+    
+    #[test]
+    fn test_memory_event_handler() {
+        let handler = MemoryEventHandler::new();
+        
+        // Test initial state
+        assert!(handler.events().is_empty());
+        
+        // Test handling events
+        let graph_id = GraphId::new();
+        let event1 = GraphEvent::GraphCreated {
+            graph_id: graph_id.clone(),
+            graph_type: GraphType::Generic,
+        };
+        handler.handle_event(&event1);
+        
+        let event2 = GraphEvent::NodeAdded {
+            graph_id: graph_id.clone(),
+            node_id: "node1".to_string(),
+        };
+        handler.handle_event(&event2);
+        
+        // Test events are stored
+        let events = handler.events();
+        assert_eq!(events.len(), 2);
+        
+        // Test clear
+        handler.clear();
+        assert!(handler.events().is_empty());
+    }
+    
+    #[test]
+    fn test_all_graph_events() {
+        let handler = MemoryEventHandler::new();
+        let graph_id = GraphId::new();
+        
+        // Test all event types
+        let events = vec![
+            GraphEvent::GraphCreated {
+                graph_id: graph_id.clone(),
+                graph_type: GraphType::ComposedGraph,
+            },
+            GraphEvent::NodeAdded {
+                graph_id: graph_id.clone(),
+                node_id: "n1".to_string(),
+            },
+            GraphEvent::NodeRemoved {
+                graph_id: graph_id.clone(),
+                node_id: "n1".to_string(),
+            },
+            GraphEvent::EdgeAdded {
+                graph_id: graph_id.clone(),
+                edge_id: "e1".to_string(),
+                source: "n1".to_string(),
+                target: "n2".to_string(),
+            },
+            GraphEvent::EdgeRemoved {
+                graph_id: graph_id.clone(),
+                edge_id: "e1".to_string(),
+            },
+            GraphEvent::GraphCleared {
+                graph_id: graph_id.clone(),
+            },
+            GraphEvent::MetadataUpdated {
+                graph_id: graph_id.clone(),
+                field: "version".to_string(),
+                old_value: Some(serde_json::json!(1)),
+                new_value: Some(serde_json::json!(2)),
+            },
+        ];
+        
+        // Handle all events
+        for event in &events {
+            handler.handle_event(event);
+        }
+        
+        // Verify all events were stored
+        let stored_events = handler.events();
+        assert_eq!(stored_events.len(), events.len());
+        
+        // Verify event details
+        match &stored_events[6] {
+            GraphEvent::MetadataUpdated { field, old_value, new_value, .. } => {
+                assert_eq!(field, "version");
+                assert_eq!(old_value, &Some(serde_json::json!(1)));
+                assert_eq!(new_value, &Some(serde_json::json!(2)));
+            }
+            _ => panic!("Expected MetadataUpdated event"),
+        }
+    }
     
     #[test]
     fn test_graph_events() {
