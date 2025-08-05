@@ -1,0 +1,326 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CIM Graph Event Catalog Schema",
+  "description": "Schema for event catalog projections from Event Storming sessions",
+  "type": "object",
+  "required": ["domain", "version", "aggregates", "entities", "value_objects", "policies", "bounded_contexts"],
+  "properties": {
+    "domain": {
+      "type": "string",
+      "description": "Domain name"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Semantic version"
+    },
+    "generated_from": {
+      "type": "string",
+      "description": "Source document"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Generation timestamp"
+    },
+    "aggregates": {
+      "type": "object",
+      "patternProperties": {
+        "^[A-Z][a-zA-Z0-9]*$": {
+          "$ref": "#/definitions/aggregate"
+        }
+      }
+    },
+    "entities": {
+      "type": "object",
+      "patternProperties": {
+        "^[A-Z][a-zA-Z0-9]*$": {
+          "$ref": "#/definitions/entity"
+        }
+      }
+    },
+    "value_objects": {
+      "type": "object",
+      "patternProperties": {
+        "^[A-Z][a-zA-Z0-9]*$": {
+          "$ref": "#/definitions/value_object"
+        }
+      }
+    },
+    "policies": {
+      "type": "object",
+      "patternProperties": {
+        "^[A-Z][a-zA-Z0-9]*Policy$": {
+          "$ref": "#/definitions/policy"
+        }
+      }
+    },
+    "bounded_contexts": {
+      "type": "object",
+      "patternProperties": {
+        "^[A-Z][a-zA-Z0-9]*Context$": {
+          "$ref": "#/definitions/bounded_context"
+        }
+      }
+    },
+    "context_relationships": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/context_relationship"
+      }
+    },
+    "implementation_priority": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/implementation_phase"
+      }
+    },
+    "key_insights": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "discovered_patterns": {
+      "type": "object",
+      "properties": {
+        "command_event_pairs": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {"type": "string"},
+            "minItems": 2,
+            "maxItems": 2
+          }
+        },
+        "event_cascades": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/event_cascade"
+          }
+        },
+        "parallel_flows": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/parallel_flow"
+          }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "aggregate": {
+      "type": "object",
+      "required": ["id", "description", "commands", "events", "invariants"],
+      "properties": {
+        "id": {"type": "string"},
+        "description": {"type": "string"},
+        "commands": {
+          "type": "array",
+          "items": {"$ref": "#/definitions/command"}
+        },
+        "events": {
+          "type": "array",
+          "items": {"$ref": "#/definitions/event"}
+        },
+        "invariants": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "state_machine": {
+          "$ref": "#/definitions/state_machine"
+        }
+      }
+    },
+    "command": {
+      "type": "object",
+      "required": ["name", "produces", "parameters"],
+      "properties": {
+        "name": {"type": "string"},
+        "produces": {"type": "string"},
+        "parameters": {
+          "type": "object",
+          "patternProperties": {
+            "^[a-z_]+$": {"type": "string"}
+          }
+        }
+      }
+    },
+    "event": {
+      "type": "object",
+      "required": ["name", "data"],
+      "properties": {
+        "name": {"type": "string"},
+        "data": {
+          "type": "object",
+          "patternProperties": {
+            "^[a-z_]+$": {"type": "string"}
+          }
+        }
+      }
+    },
+    "state_machine": {
+      "type": "object",
+      "required": ["states", "transitions"],
+      "properties": {
+        "states": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "transitions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/transition"
+          }
+        }
+      }
+    },
+    "transition": {
+      "type": "object",
+      "required": ["from", "to", "via"],
+      "properties": {
+        "from": {"type": "string"},
+        "to": {"type": "string"},
+        "via": {
+          "oneOf": [
+            {"type": "string"},
+            {"type": "array", "items": {"type": "string"}}
+          ]
+        }
+      }
+    },
+    "entity": {
+      "type": "object",
+      "required": ["description", "properties", "belongs_to"],
+      "properties": {
+        "description": {"type": "string"},
+        "properties": {
+          "type": "object",
+          "patternProperties": {
+            "^[a-z_]+$": {"type": "string"}
+          }
+        },
+        "belongs_to": {"type": "string"}
+      }
+    },
+    "value_object": {
+      "type": "object",
+      "required": ["description", "immutable"],
+      "properties": {
+        "description": {"type": "string"},
+        "properties": {
+          "type": "object",
+          "patternProperties": {
+            "^[a-z_]+$": {"type": "string"}
+          }
+        },
+        "enum": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "immutable": {"type": "boolean"}
+      }
+    },
+    "policy": {
+      "type": "object",
+      "required": ["trigger", "action", "rules"],
+      "properties": {
+        "trigger": {"type": "string"},
+        "action": {"type": "string"},
+        "rules": {
+          "type": "array",
+          "items": {"type": "string"}
+        }
+      }
+    },
+    "bounded_context": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": {"type": "string"},
+        "aggregates": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "entities": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "commands": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "events": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "projections": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "policies": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "responsibilities": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "relationships": {
+          "type": "object",
+          "patternProperties": {
+            "^[a-z_]+$": {
+              "type": "array",
+              "items": {"type": "string"}
+            }
+          }
+        }
+      }
+    },
+    "context_relationship": {
+      "type": "object",
+      "required": ["from", "to", "type", "description"],
+      "properties": {
+        "from": {"type": "string"},
+        "to": {"type": "string"},
+        "type": {"type": "string", "enum": ["upstream-downstream", "customer-supplier", "conformist", "partnership"]},
+        "description": {"type": "string"}
+      }
+    },
+    "implementation_phase": {
+      "type": "object",
+      "required": ["phase", "name", "description", "tasks"],
+      "properties": {
+        "phase": {"type": "integer", "minimum": 1},
+        "name": {"type": "string"},
+        "description": {"type": "string"},
+        "tasks": {
+          "type": "array",
+          "items": {"type": "string"}
+        }
+      }
+    },
+    "event_cascade": {
+      "type": "object",
+      "required": ["trigger", "cascade"],
+      "properties": {
+        "trigger": {"type": "string"},
+        "cascade": {
+          "type": "array",
+          "items": {"type": "string"}
+        }
+      }
+    },
+    "parallel_flow": {
+      "type": "object",
+      "required": ["name", "events"],
+      "properties": {
+        "name": {"type": "string"},
+        "events": {
+          "type": "array",
+          "items": {"type": "string"}
+        }
+      }
+    }
+  }
+}

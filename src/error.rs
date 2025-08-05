@@ -92,6 +92,10 @@ pub enum GraphError {
     /// Serialization/deserialization error
     #[error("Serialization error: {0}")]
     SerializationError(String),
+    
+    /// External error (from dependencies)
+    #[error("External error: {0}")]
+    External(String),
 }
 
 impl From<serde_json::Error> for GraphError {

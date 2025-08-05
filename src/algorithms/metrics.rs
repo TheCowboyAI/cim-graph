@@ -1,219 +1,78 @@
-//! Graph metrics algorithms
-//!
-//! Provides algorithms for computing various graph metrics
+//! Graph metrics algorithms for projections
 
-use crate::core::{EventGraph, Node, Edge};
-use crate::error::Result;
-use std::collections::{HashMap, HashSet};
+use crate::core::GraphProjection;
+use crate::{Node, error::Result};
+use std::collections::HashMap;
 
-/// Compute degree centrality for all nodes
-pub fn degree_centrality<N: Node, E: Edge>(
-    graph: &EventGraph<N, E>,
-) -> Result<HashMap<String, f64>> {
-    let mut centrality = HashMap::new();
-    let node_count = graph.node_count() as f64;
+/// Calculate centrality measures for nodes
+pub fn centrality<P: GraphProjection>(projection: &P) -> Result<HashMap<String, f64>> 
+where
+    P::Node: Node,
+{
+    let mut centrality_scores = HashMap::new();
     
-    if node_count <= 1.0 {
-        // For graphs with 0 or 1 nodes, centrality is not well-defined
-        for node_id in graph.node_ids() {
-            centrality.insert(node_id, 0.0);
+    // Simple degree centrality
+    for node in projection.nodes() {
+        let node_id = node.id();
+        let degree = projection.neighbors(&node_id).len() as f64;
+        centrality_scores.insert(node_id, degree);
+    }
+    
+    // Normalize by max degree
+    if let Some(&max_degree) = centrality_scores.values().max_by(|a, b| a.partial_cmp(b).unwrap()) {
+        if max_degree > 0.0 {
+            for score in centrality_scores.values_mut() {
+                *score /= max_degree;
+            }
         }
-        return Ok(centrality);
     }
     
-    for node_id in graph.node_ids() {
-        let degree = graph.degree(&node_id)? as f64;
-        // Normalize by the maximum possible degree (n-1)
-        centrality.insert(node_id, degree / (node_count - 1.0));
-    }
-    
-    Ok(centrality)
+    Ok(centrality_scores)
 }
 
-/// Alias for degree_centrality (to match the public API)
-pub fn centrality<N: Node, E: Edge>(
-    graph: &EventGraph<N, E>,
-) -> Result<HashMap<String, f64>> {
-    degree_centrality(graph)
-}
-
-/// Compute clustering coefficient for a specific node
-pub fn node_clustering_coefficient<N: Node, E: Edge>(
-    graph: &EventGraph<N, E>,
-    node_id: &str,
-) -> Result<f64> {
-    let neighbors = graph.neighbors(node_id)?;
-    let neighbor_count = neighbors.len();
-    
-    if neighbor_count < 2 {
-        // Clustering coefficient is 0 for nodes with less than 2 neighbors
+/// Calculate clustering coefficient
+pub fn clustering_coefficient<P: GraphProjection>(projection: &P) -> Result<f64> 
+where
+    P::Node: Node,
+{
+    let nodes = projection.nodes();
+    if nodes.is_empty() {
         return Ok(0.0);
     }
     
-    // Count edges between neighbors
-    let mut edge_count = 0;
-    let neighbor_set: HashSet<_> = neighbors.iter().cloned().collect();
+    let mut total_coefficient = 0.0;
+    let mut count = 0;
     
-    for neighbor in &neighbors {
-        if let Ok(second_neighbors) = graph.neighbors(neighbor) {
-            for second_neighbor in second_neighbors {
-                if neighbor_set.contains(&second_neighbor) {
+    for node in nodes {
+        let node_id = node.id();
+        let neighbors = projection.neighbors(&node_id);
+        
+        if neighbors.len() < 2 {
+            continue;
+        }
+        
+        // Count edges between neighbors
+        let mut edge_count = 0;
+        for i in 0..neighbors.len() {
+            for j in (i + 1)..neighbors.len() {
+                if !projection.edges_between(neighbors[i], neighbors[j]).is_empty() {
                     edge_count += 1;
                 }
             }
         }
-    }
-    
-    // In a directed graph, we counted each edge once
-    // Maximum possible edges between k neighbors is k*(k-1)
-    let max_edges = neighbor_count * (neighbor_count - 1);
-    
-    Ok(edge_count as f64 / max_edges as f64)
-}
-
-/// Compute average clustering coefficient for the entire graph
-pub fn clustering_coefficient<N: Node, E: Edge>(
-    graph: &EventGraph<N, E>,
-) -> Result<f64> {
-    let node_ids = graph.node_ids();
-    
-    if node_ids.is_empty() {
-        return Ok(0.0);
-    }
-    
-    let mut total = 0.0;
-    let mut count = 0;
-    
-    for node_id in node_ids {
-        let coeff = node_clustering_coefficient(graph, &node_id)?;
-        total += coeff;
-        count += 1;
-    }
-    
-    Ok(total / count as f64)
-}
-
-/// Compute the density of the graph
-pub fn graph_density<N: Node, E: Edge>(
-    graph: &EventGraph<N, E>,
-) -> Result<f64> {
-    let node_count = graph.node_count() as f64;
-    let edge_count = graph.edge_count() as f64;
-    
-    if node_count <= 1.0 {
-        return Ok(0.0);
-    }
-    
-    // For directed graphs: density = edges / (nodes * (nodes - 1))
-    // For undirected graphs: density = 2 * edges / (nodes * (nodes - 1))
-    // We assume directed graphs here
-    let max_edges = node_count * (node_count - 1.0);
-    
-    Ok(edge_count / max_edges)
-}
-
-/// Find connected components using DFS
-pub fn connected_components<N: Node, E: Edge>(
-    graph: &EventGraph<N, E>,
-) -> Result<Vec<Vec<String>>> {
-    let mut visited = HashSet::new();
-    let mut components = Vec::new();
-    
-    for node_id in graph.node_ids() {
-        if !visited.contains(&node_id) {
-            let mut component = Vec::new();
-            dfs_component(graph, &node_id, &mut visited, &mut component)?;
-            components.push(component);
+        
+        // Calculate local clustering coefficient
+        let possible_edges = (neighbors.len() * (neighbors.len() - 1)) / 2;
+        if possible_edges > 0 {
+            let local_coefficient = edge_count as f64 / possible_edges as f64;
+            total_coefficient += local_coefficient;
+            count += 1;
         }
     }
     
-    Ok(components)
-}
-
-/// Helper function for connected components
-fn dfs_component<N: Node, E: Edge>(
-    graph: &EventGraph<N, E>,
-    start: &str,
-    visited: &mut HashSet<String>,
-    component: &mut Vec<String>,
-) -> Result<()> {
-    visited.insert(start.to_string());
-    component.push(start.to_string());
-    
-    if let Ok(neighbors) = graph.neighbors(start) {
-        for neighbor in neighbors {
-            if !visited.contains(&neighbor) {
-                dfs_component(graph, &neighbor, visited, component)?;
-            }
-        }
-    }
-    
-    // Also check predecessors for undirected connectivity
-    if let Ok(predecessors) = graph.predecessors(start) {
-        for predecessor in predecessors {
-            if !visited.contains(&predecessor) {
-                dfs_component(graph, &predecessor, visited, component)?;
-            }
-        }
-    }
-    
-    Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::core::{GraphBuilder, GraphType};
-    use crate::core::node::GenericNode;
-    use crate::core::edge::GenericEdge;
-    
-    #[test]
-    fn test_degree_centrality() {
-        let mut graph = GraphBuilder::new()
-            .graph_type(GraphType::Generic)
-            .build_event()
-            .unwrap();
-            
-        // Create a star graph: A is connected to B, C, D
-        graph.add_node(GenericNode::new("A", "data")).unwrap();
-        graph.add_node(GenericNode::new("B", "data")).unwrap();
-        graph.add_node(GenericNode::new("C", "data")).unwrap();
-        graph.add_node(GenericNode::new("D", "data")).unwrap();
-        
-        graph.add_edge(GenericEdge::new("A", "B", 1.0)).unwrap();
-        graph.add_edge(GenericEdge::new("A", "C", 1.0)).unwrap();
-        graph.add_edge(GenericEdge::new("A", "D", 1.0)).unwrap();
-        
-        let centrality = degree_centrality(&graph).unwrap();
-        
-        // A has degree 3, normalized by (n-1) = 3
-        assert_eq!(centrality["A"], 1.0);
-        
-        // B, C, D each have degree 0 (no outgoing edges)
-        assert_eq!(centrality["B"], 0.0);
-    }
-    
-    #[test]
-    fn test_clustering_coefficient() {
-        let mut graph = GraphBuilder::new()
-            .graph_type(GraphType::Generic)
-            .build_event()
-            .unwrap();
-            
-        // Create a triangle: A -> B, A -> C, B -> C
-        graph.add_node(GenericNode::new("A", "data")).unwrap();
-        graph.add_node(GenericNode::new("B", "data")).unwrap();
-        graph.add_node(GenericNode::new("C", "data")).unwrap();
-        
-        graph.add_edge(GenericEdge::new("A", "B", 1.0)).unwrap();
-        graph.add_edge(GenericEdge::new("A", "C", 1.0)).unwrap();
-        graph.add_edge(GenericEdge::new("B", "C", 1.0)).unwrap();
-        
-        // For directed graph: A has 2 neighbors (B, C)
-        // There's 1 edge between neighbors (B->C)
-        // Max possible edges = 2 * 1 = 2
-        // Coefficient = 1/2 = 0.5
-        let coeff = node_clustering_coefficient(&graph, "A").unwrap();
-        assert_eq!(coeff, 0.5);
+    if count > 0 {
+        Ok(total_coefficient / count as f64)
+    } else {
+        Ok(0.0)
     }
 }

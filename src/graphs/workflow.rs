@@ -1,532 +1,368 @@
-//! Workflow graph for state machines and process flows
-//! 
-//! Represents states, transitions, and guards in workflows
+//! Workflow graph - state machines (event-driven projection)
 
-use crate::core::{EventGraph, EventHandler, GraphBuilder, GraphType, Node};
-use crate::error::{GraphError, Result};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use std::collections::{HashMap, HashSet};
 
-/// Types of workflow nodes
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum StateType {
-    /// Initial state (entry point)
-    Initial,
-    /// Regular state
-    Normal,
-    /// Intermediate state (alias for Normal)
-    Intermediate,
-    /// Final state (exit point)
-    Final,
-    /// Choice/decision point
-    Choice,
-    /// Fork (parallel split)
-    Fork,
-    /// Join (parallel merge)
-    Join,
-    /// Composite state (contains sub-states)
-    Composite,
+pub use crate::core::projection_engine::GenericGraphProjection;
+pub use crate::core::{Node, Edge};
+
+/// Workflow graph projection
+pub type WorkflowGraph = GenericGraphProjection<WorkflowNode, WorkflowEdge>;
+
+/// Workflow projection with additional workflow-specific methods
+pub type WorkflowProjection = WorkflowGraph;
+
+/// Workflow state enumeration
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum WorkflowState {
+    Draft,
+    Published,
+    Running { current_state: String },
+    Completed,
+    Failed { error: String },
 }
 
-/// Node representing a state in the workflow
+/// Type of workflow node
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum WorkflowNodeType {
+    /// Start state
+    Start,
+    /// End state
+    End,
+    /// State in the workflow
+    State { name: String },
+    /// Decision point
+    Decision { condition: String },
+    /// Action to perform
+    Action { operation: String },
+    /// Wait for external event
+    Wait { event_type: String },
+    /// Error state
+    Error { message: String },
+}
+
+/// Workflow node represents a state or action in a state machine
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkflowNode {
-    /// Unique identifier
-    id: String,
-    /// State name
-    name: String,
-    /// Type of state
-    state_type: StateType,
-    /// Entry actions
-    entry_actions: Vec<String>,
-    /// Exit actions
-    exit_actions: Vec<String>,
-    /// Internal activities
-    activities: Vec<String>,
-    /// Parent state (for nested states)
-    parent: Option<String>,
-    /// Metadata
-    metadata: serde_json::Value,
+    pub id: String,
+    pub node_type: WorkflowNodeType,
+    pub metadata: HashMap<String, serde_json::Value>,
+    pub workflow_state: WorkflowState,
 }
 
 impl WorkflowNode {
     /// Create a new workflow node
-    pub fn new(id: impl Into<String>, name: impl Into<String>, state_type: StateType) -> Self {
+    pub fn new(id: impl Into<String>, node_type: WorkflowNodeType) -> Self {
         Self {
             id: id.into(),
-            name: name.into(),
-            state_type,
-            entry_actions: Vec::new(),
-            exit_actions: Vec::new(),
-            activities: Vec::new(),
-            parent: None,
-            metadata: serde_json::Value::Object(serde_json::Map::new()),
+            node_type,
+            metadata: HashMap::new(),
+            workflow_state: WorkflowState::Draft,
         }
     }
-    
-    /// Add an entry action
-    pub fn add_entry_action(&mut self, action: impl Into<String>) {
-        self.entry_actions.push(action.into());
+
+    /// Create a start node
+    pub fn start(id: impl Into<String>) -> Self {
+        Self::new(id, WorkflowNodeType::Start)
     }
-    
-    /// Add an exit action
-    pub fn add_exit_action(&mut self, action: impl Into<String>) {
-        self.exit_actions.push(action.into());
+
+    /// Create an end node
+    pub fn end(id: impl Into<String>) -> Self {
+        Self::new(id, WorkflowNodeType::End)
     }
-    
-    /// Add an activity
-    pub fn add_activity(&mut self, activity: impl Into<String>) {
-        self.activities.push(activity.into());
+
+    /// Create a state node
+    pub fn state(id: impl Into<String>, name: impl Into<String>) -> Self {
+        Self::new(id, WorkflowNodeType::State { name: name.into() })
     }
-    
-    /// Set parent state
-    pub fn with_parent(mut self, parent: impl Into<String>) -> Self {
-        self.parent = Some(parent.into());
-        self
+
+    /// Create a decision node
+    pub fn decision(id: impl Into<String>, condition: impl Into<String>) -> Self {
+        Self::new(id, WorkflowNodeType::Decision { condition: condition.into() })
     }
-    
-    /// Get state type
-    pub fn state_type(&self) -> StateType {
-        self.state_type
+
+    /// Create an action node
+    pub fn action(id: impl Into<String>, operation: impl Into<String>) -> Self {
+        Self::new(id, WorkflowNodeType::Action { operation: operation.into() })
     }
-    
-    /// Get name
-    pub fn name(&self) -> &str {
-        &self.name
+
+    /// Create a wait node
+    pub fn wait(id: impl Into<String>, event_type: impl Into<String>) -> Self {
+        Self::new(id, WorkflowNodeType::Wait { event_type: event_type.into() })
+    }
+
+    /// Create an error node
+    pub fn error(id: impl Into<String>, message: impl Into<String>) -> Self {
+        Self::new(id, WorkflowNodeType::Error { message: message.into() })
     }
 }
 
-impl crate::core::Node for WorkflowNode {
+impl Node for WorkflowNode {
     fn id(&self) -> String {
         self.id.clone()
     }
 }
 
-/// Workflow transition between states
+/// Type of workflow edge (transition)
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum WorkflowEdgeType {
+    /// Normal transition
+    Transition,
+    /// Conditional transition
+    ConditionalTransition { condition: String },
+    /// Error transition
+    ErrorTransition,
+    /// Timeout transition
+    TimeoutTransition { timeout_ms: u64 },
+    /// Event-triggered transition
+    EventTransition { event_type: String },
+}
+
+/// Workflow edge represents a transition between states
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkflowEdge {
-    /// Unique identifier
-    id: String,
-    /// Source state
-    source: String,
-    /// Target state
-    target: String,
-    /// Trigger event
-    trigger: Option<String>,
-    /// Guard condition
-    guard: Option<String>,
-    /// Actions to execute during transition
-    actions: Vec<String>,
-    /// Priority (for choice states)
-    priority: u32,
+    pub id: String,
+    pub source: String,
+    pub target: String,
+    pub edge_type: WorkflowEdgeType,
+    pub metadata: HashMap<String, serde_json::Value>,
+    pub trigger: Option<String>,
 }
 
 impl WorkflowEdge {
-    /// Create a new workflow transition
-    pub fn new(source: impl Into<String>, target: impl Into<String>) -> Self {
-        let source = source.into();
-        let target = target.into();
-        let id = format!("{}->{}:{}", source, target, uuid::Uuid::new_v4());
-        
+    /// Create a new workflow edge
+    pub fn new(
+        id: impl Into<String>,
+        source: impl Into<String>,
+        target: impl Into<String>,
+        edge_type: WorkflowEdgeType,
+    ) -> Self {
         Self {
+            id: id.into(),
+            source: source.into(),
+            target: target.into(),
+            edge_type,
+            metadata: HashMap::new(),
+            trigger: None,
+        }
+    }
+
+    /// Create a simple transition
+    pub fn transition(
+        id: impl Into<String>,
+        source: impl Into<String>,
+        target: impl Into<String>,
+    ) -> Self {
+        Self::new(id, source, target, WorkflowEdgeType::Transition)
+    }
+
+    /// Create a conditional transition
+    pub fn conditional(
+        id: impl Into<String>,
+        source: impl Into<String>,
+        target: impl Into<String>,
+        condition: impl Into<String>,
+    ) -> Self {
+        Self::new(
             id,
             source,
             target,
-            trigger: None,
-            guard: None,
-            actions: Vec::new(),
-            priority: 0,
-        }
+            WorkflowEdgeType::ConditionalTransition {
+                condition: condition.into(),
+            },
+        )
     }
-    
-    /// Set the trigger event
+
+    /// Create an event-triggered transition
+    pub fn event_triggered(
+        id: impl Into<String>,
+        source: impl Into<String>,
+        target: impl Into<String>,
+        event_type: impl Into<String>,
+    ) -> Self {
+        Self::new(
+            id,
+            source,
+            target,
+            WorkflowEdgeType::EventTransition {
+                event_type: event_type.into(),
+            },
+        )
+    }
+
+    /// Set the trigger for this transition
     pub fn with_trigger(mut self, trigger: impl Into<String>) -> Self {
         self.trigger = Some(trigger.into());
         self
     }
-    
-    /// Set the guard condition
-    pub fn with_guard(mut self, guard: impl Into<String>) -> Self {
-        self.guard = Some(guard.into());
-        self
-    }
-    
-    /// Add an action
-    pub fn add_action(&mut self, action: impl Into<String>) {
-        self.actions.push(action.into());
-    }
-    
-    /// Set priority
-    pub fn with_priority(mut self, priority: u32) -> Self {
-        self.priority = priority;
-        self
-    }
-    
-    /// Get the trigger
-    pub fn trigger(&self) -> Option<&str> {
-        self.trigger.as_deref()
-    }
-    
-    /// Get the guard
-    pub fn guard(&self) -> Option<&str> {
-        self.guard.as_deref()
-    }
 }
 
-impl crate::core::Edge for WorkflowEdge {
+impl Edge for WorkflowEdge {
     fn id(&self) -> String {
         self.id.clone()
     }
-    
     fn source(&self) -> String {
         self.source.clone()
     }
-    
     fn target(&self) -> String {
         self.target.clone()
     }
 }
 
-/// State machine workflow graph
-pub struct WorkflowGraph {
-    /// Underlying event-driven graph
-    graph: EventGraph<WorkflowNode, WorkflowEdge>,
-    /// Current active states (supports parallel states)
-    active_states: Vec<String>,
-    /// History of state transitions
-    transition_history: Vec<(String, String, String)>, // (from, to, trigger)
-}
+/// Extension methods for WorkflowProjection
+impl WorkflowProjection {
+    /// Get all states in the workflow
+    pub fn get_states(&self) -> Vec<&WorkflowNode> {
+        self.nodes()
+            .filter(|n| matches!(n.node_type, WorkflowNodeType::State { .. }))
+            .collect()
+    }
 
-impl WorkflowGraph {
-    /// Create a new workflow graph
-    pub fn new() -> Self {
-        let graph = GraphBuilder::new()
-            .graph_type(GraphType::WorkflowGraph)
-            .build_event()
-            .expect("Failed to create workflow graph");
+    /// Get the start node
+    pub fn get_start_node(&self) -> Option<&WorkflowNode> {
+        self.nodes()
+            .find(|n| matches!(n.node_type, WorkflowNodeType::Start))
+    }
+
+    /// Get the end nodes
+    pub fn get_end_nodes(&self) -> Vec<&WorkflowNode> {
+        self.nodes()
+            .filter(|n| matches!(n.node_type, WorkflowNodeType::End))
+            .collect()
+    }
+
+    /// Get all decision nodes
+    pub fn get_decision_nodes(&self) -> Vec<&WorkflowNode> {
+        self.nodes()
+            .filter(|n| matches!(n.node_type, WorkflowNodeType::Decision { .. }))
+            .collect()
+    }
+
+    /// Get all transitions from a state
+    pub fn get_transitions_from(&self, state_id: &str) -> Vec<&WorkflowEdge> {
+        self.edges()
+            .filter(|e| e.source() == state_id)
+            .collect()
+    }
+
+    /// Get all transitions to a state
+    pub fn get_transitions_to(&self, state_id: &str) -> Vec<&WorkflowEdge> {
+        self.edges()
+            .filter(|e| e.target() == state_id)
+            .collect()
+    }
+
+    /// Find a path from start to end
+    pub fn find_path(&self, from: &str, to: &str) -> Option<Vec<String>> {
+        // Simple BFS path finding
+        use std::collections::{VecDeque, HashSet};
+        
+        let mut queue = VecDeque::new();
+        let mut visited = HashSet::new();
+        let mut parent: HashMap<String, String> = HashMap::new();
+        
+        queue.push_back(from.to_string());
+        visited.insert(from.to_string());
+        
+        while let Some(current) = queue.pop_front() {
+            if current == to {
+                // Reconstruct path
+                let mut path = vec![current.clone()];
+                let mut node = current;
+                while let Some(p) = parent.get(&node) {
+                    path.push(p.clone());
+                    node = p.clone();
+                }
+                path.reverse();
+                return Some(path);
+            }
             
-        Self {
-            graph,
-            active_states: Vec::new(),
-            transition_history: Vec::new(),
+            for edge in self.get_transitions_from(&current) {
+                let target = edge.target();
+                if !visited.contains(&target) {
+                    visited.insert(target.clone());
+                    parent.insert(target.clone(), current.clone());
+                    queue.push_back(target);
+                }
+            }
         }
+        
+        None
     }
-    
-    /// Create a new workflow graph with an event handler
-    pub fn with_handler(handler: Arc<dyn EventHandler>) -> Self {
-        let graph = GraphBuilder::new()
-            .graph_type(GraphType::WorkflowGraph)
-            .add_handler(handler)
-            .build_event()
-            .expect("Failed to create workflow graph");
+
+    /// Validate the workflow structure
+    pub fn validate(&self) -> Result<(), String> {
+        // Check for start node
+        if self.get_start_node().is_none() {
+            return Err("Workflow must have a start node".to_string());
+        }
+
+        // Check for at least one end node
+        if self.get_end_nodes().is_empty() {
+            return Err("Workflow must have at least one end node".to_string());
+        }
+
+        // Check for unreachable states
+        if let Some(start) = self.get_start_node() {
+            let mut reachable = HashSet::new();
+            let mut to_visit = vec![start.id.clone()];
             
-        Self {
-            graph,
-            active_states: Vec::new(),
-            transition_history: Vec::new(),
-        }
-    }
-    
-    /// Add a state to the workflow
-    pub fn add_state(&mut self, state: WorkflowNode) -> Result<String> {
-        let id = state.id();
-        
-        // If it's an initial state and we have active states, reject
-        if state.state_type() == StateType::Initial && !self.active_states.is_empty() {
-            return Err(GraphError::InvalidOperation(
-                "Cannot add initial state to active workflow".to_string()
-            ));
-        }
-        
-        self.graph.add_node(state)?;
-        
-        // If it's the initial state, make it active
-        if self.graph.get_node(&id).unwrap().state_type() == StateType::Initial {
-            self.active_states.push(id.clone());
-        }
-        
-        Ok(id)
-    }
-    
-    /// Add a transition between states
-    pub fn add_transition(&mut self, from: &str, to: &str, event: &str) -> Result<String> {
-        let mut transition = WorkflowEdge::new(from, to);
-        transition = transition.with_trigger(event);
-        self.graph.add_edge(transition)
-    }
-    
-    /// Add a transition edge directly
-    pub fn add_transition_edge(&mut self, transition: WorkflowEdge) -> Result<String> {
-        self.graph.add_edge(transition)
-    }
-    
-    /// Start the workflow from an initial state
-    pub fn start(&mut self, initial_state: &str) -> Result<()> {
-        // Verify the state exists and is initial
-        let state = self.graph.get_node(initial_state)
-            .ok_or_else(|| GraphError::NodeNotFound(initial_state.to_string()))?;
+            while let Some(node_id) = to_visit.pop() {
+                if reachable.insert(node_id.clone()) {
+                    for edge in self.get_transitions_from(&node_id) {
+                        to_visit.push(edge.target());
+                    }
+                }
+            }
             
-        if state.state_type() != StateType::Initial {
-            return Err(GraphError::InvalidOperation(
-                format!("State '{}' is not an initial state", initial_state)
-            ));
+            for node in self.nodes() {
+                if !reachable.contains(&node.id) {
+                    return Err(format!("Node {} is unreachable from start", node.id));
+                }
+            }
         }
-        
-        self.active_states.clear();
-        self.active_states.push(initial_state.to_string());
-        self.transition_history.clear();
-        
+
         Ok(())
     }
-    
-    /// Process an event and transition states
-    pub fn process_event(&mut self, event: &str) -> Result<Vec<String>> {
-        let mut transitions_taken = Vec::new();
-        let mut new_active_states = Vec::new();
-        
-        for active_state in &self.active_states {
-            let mut transitioned = false;
-            
-            // Find applicable transitions
-            let transitions = self.graph.neighbors(active_state)?;
-            
-            for target in transitions {
-                let edges = self.graph.edges_between(active_state, &target);
-                
-                // Find matching transition
-                for edge in edges {
-                    if edge.trigger() == Some(event) {
-                        // Check guard condition (simplified - in real implementation would evaluate)
-                        if edge.guard().is_none() || self.evaluate_guard(edge.guard().unwrap()) {
-                            // Execute exit actions
-                            if let Some(state) = self.graph.get_node(active_state) {
-                                for action in &state.exit_actions {
-                                    self.execute_action(action);
-                                }
-                            }
-                            
-                            // Execute transition actions
-                            for action in &edge.actions {
-                                self.execute_action(action);
-                            }
-                            
-                            // Execute entry actions
-                            if let Some(state) = self.graph.get_node(&target) {
-                                for action in &state.entry_actions {
-                                    self.execute_action(action);
-                                }
-                            }
-                            
-                            // Record transition
-                            self.transition_history.push((
-                                active_state.clone(),
-                                target.clone(),
-                                event.to_string(),
-                            ));
-                            
-                            transitions_taken.push(format!("{} -> {}", active_state, target));
-                            new_active_states.push(target.clone());
-                            transitioned = true;
-                            break;
-                        }
-                    }
-                }
-                
-                if transitioned {
-                    break;
-                }
-            }
-            
-            // If no transition was taken, state remains active
-            if !transitioned {
-                new_active_states.push(active_state.clone());
-            }
-        }
-        
-        self.active_states = new_active_states;
-        Ok(transitions_taken)
-    }
-    
-    /// Check if workflow is in a final state
-    pub fn is_final_state(&self) -> bool {
-        self.active_states.iter().all(|state| {
-            self.graph.get_node(state)
-                .map(|n| n.state_type() == StateType::Final)
-                .unwrap_or(false)
-        })
-    }
-    
-    /// Get current active states
-    pub fn active_states(&self) -> &[String] {
-        &self.active_states
-    }
-    
-    /// Get current active states (alternate name for compatibility)
-    pub fn current_states(&self) -> &[String] {
-        &self.active_states
-    }
-    
-    /// Get transition history
-    pub fn transition_history(&self) -> &[(String, String, String)] {
-        &self.transition_history
-    }
-    
-    /// Validate the workflow structure
-    pub fn validate(&self) -> Vec<String> {
-        let mut errors = Vec::new();
-        
-        // Check for initial state
-        let initial_states: Vec<_> = self.graph.node_ids()
-            .into_iter()
-            .filter(|id| {
-                self.graph.get_node(id)
-                    .map(|n| n.state_type() == StateType::Initial)
-                    .unwrap_or(false)
-            })
-            .collect();
-            
-        if initial_states.is_empty() {
-            errors.push("No initial state found".to_string());
-        } else if initial_states.len() > 1 {
-            errors.push(format!("Multiple initial states found: {:?}", initial_states));
-        }
-        
-        // Check for unreachable states
-        if let Some(initial) = initial_states.first() {
-            let reachable = self.find_reachable_states(initial);
-            let all_states: std::collections::HashSet<_> = self.graph.node_ids().into_iter().collect();
-            let unreachable: Vec<_> = all_states.difference(&reachable).collect();
-            
-            if !unreachable.is_empty() {
-                errors.push(format!("Unreachable states: {:?}", unreachable));
-            }
-        }
-        
-        // Check for deadlock states (non-final states with no outgoing transitions)
-        for state_id in self.graph.node_ids() {
-            if let Some(state) = self.graph.get_node(&state_id) {
-                if state.state_type() != StateType::Final {
-                    if let Ok(neighbors) = self.graph.neighbors(&state_id) {
-                        if neighbors.is_empty() {
-                            errors.push(format!("Deadlock state (no outgoing transitions): {}", state_id));
-                        }
-                    }
-                }
-            }
-        }
-        
-        errors
-    }
-    
-    /// Find all states reachable from a given state
-    fn find_reachable_states(&self, start: &str) -> std::collections::HashSet<String> {
-        let mut reachable = std::collections::HashSet::new();
-        let mut queue = vec![start.to_string()];
-        
-        while let Some(state) = queue.pop() {
-            if reachable.insert(state.clone()) {
-                if let Ok(neighbors) = self.graph.neighbors(&state) {
-                    queue.extend(neighbors);
-                }
-            }
-        }
-        
-        reachable
-    }
-    
-    /// Evaluate a guard condition (simplified)
-    fn evaluate_guard(&self, _guard: &str) -> bool {
-        // In a real implementation, this would evaluate the guard expression
-        true
-    }
-    
-    /// Execute an action (simplified)
-    fn execute_action(&self, _action: &str) {
-        // In a real implementation, this would execute the action
-    }
-    
-    /// Get the underlying graph
-    pub fn graph(&self) -> &EventGraph<WorkflowNode, WorkflowEdge> {
-        &self.graph
-    }
-    
-    /// Get mutable access to the underlying graph
-    pub fn graph_mut(&mut self) -> &mut EventGraph<WorkflowNode, WorkflowEdge> {
-        &mut self.graph
-    }
-}
 
-impl Default for WorkflowGraph {
-    fn default() -> Self {
-        Self::new()
+    /// Check if the workflow is in a running state
+    pub fn is_running(&self) -> bool {
+        self.nodes()
+            .any(|n| matches!(n.workflow_state, WorkflowState::Running { .. }))
+    }
+
+    /// Get the current running state
+    pub fn get_current_state(&self) -> Option<&WorkflowNode> {
+        self.nodes()
+            .find(|n| matches!(n.workflow_state, WorkflowState::Running { .. }))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
-    fn test_workflow_creation() {
-        let graph = WorkflowGraph::new();
-        assert_eq!(graph.graph().node_count(), 0);
-        assert_eq!(graph.graph().graph_type(), GraphType::WorkflowGraph);
+    fn test_workflow_node_creation() {
+        let start = WorkflowNode::start("start");
+        assert!(matches!(start.node_type, WorkflowNodeType::Start));
+        
+        let state = WorkflowNode::state("s1", "Processing");
+        assert!(matches!(state.node_type, WorkflowNodeType::State { name } if name == "Processing"));
+        
+        let decision = WorkflowNode::decision("d1", "amount > 100");
+        assert!(matches!(decision.node_type, WorkflowNodeType::Decision { condition } if condition == "amount > 100"));
     }
-    
+
     #[test]
-    fn test_simple_workflow() {
-        let mut workflow = WorkflowGraph::new();
+    fn test_workflow_edge_creation() {
+        let transition = WorkflowEdge::transition("t1", "s1", "s2");
+        assert!(matches!(transition.edge_type, WorkflowEdgeType::Transition));
         
-        // Add states
-        let initial = WorkflowNode::new("start", "Start", StateType::Initial);
-        let processing = WorkflowNode::new("processing", "Processing", StateType::Normal);
-        let done = WorkflowNode::new("done", "Done", StateType::Final);
+        let conditional = WorkflowEdge::conditional("c1", "d1", "s2", "approved");
+        assert!(matches!(conditional.edge_type, WorkflowEdgeType::ConditionalTransition { condition } if condition == "approved"));
         
-        workflow.add_state(initial).unwrap();
-        workflow.add_state(processing).unwrap();
-        workflow.add_state(done).unwrap();
-        
-        // Add transitions
-        let t1 = WorkflowEdge::new("start", "processing")
-            .with_trigger("begin");
-        let t2 = WorkflowEdge::new("processing", "done")
-            .with_trigger("complete");
-            
-        workflow.add_transition_edge(t1).unwrap();
-        workflow.add_transition_edge(t2).unwrap();
-        
-        // Verify initial state
-        assert_eq!(workflow.active_states(), vec!["start"]);
-        
-        // Process events
-        workflow.process_event("begin").unwrap();
-        assert_eq!(workflow.active_states(), vec!["processing"]);
-        
-        workflow.process_event("complete").unwrap();
-        assert_eq!(workflow.active_states(), vec!["done"]);
-        assert!(workflow.is_final_state());
-    }
-    
-    #[test]
-    fn test_workflow_validation() {
-        let mut workflow = WorkflowGraph::new();
-        
-        // Add disconnected states
-        let s1 = WorkflowNode::new("s1", "State1", StateType::Initial);
-        let s2 = WorkflowNode::new("s2", "State2", StateType::Normal);
-        let s3 = WorkflowNode::new("s3", "State3", StateType::Normal); // Unreachable
-        
-        workflow.add_state(s1).unwrap();
-        workflow.add_state(s2).unwrap();
-        workflow.add_state(s3).unwrap();
-        
-        // Only connect s1 to s2
-        let t1 = WorkflowEdge::new("s1", "s2");
-        workflow.add_transition_edge(t1).unwrap();
-        
-        // Validate
-        let errors = workflow.validate();
-        assert!(errors.iter().any(|e| e.contains("Unreachable")));
-        assert!(errors.iter().any(|e| e.contains("Deadlock")));
+        let event = WorkflowEdge::event_triggered("e1", "wait", "process", "payment_received");
+        assert!(matches!(event.edge_type, WorkflowEdgeType::EventTransition { event_type } if event_type == "payment_received"));
     }
 }

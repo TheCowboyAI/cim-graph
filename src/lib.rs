@@ -50,6 +50,9 @@
 /// Core graph traits and types
 pub mod core;
 
+/// Event schemas and handlers
+pub mod events;
+
 /// Graph implementations
 pub mod graphs;
 
@@ -65,16 +68,22 @@ pub mod serde_support;
 /// Performance optimizations
 pub mod performance;
 
+/// NATS JetStream integration
+#[cfg(feature = "nats")]
+#[cfg_attr(docsrs, doc(cfg(feature = "nats")))]
+pub mod nats;
+
 // Re-exports
-pub use crate::core::{Graph, Node, Edge, EventHandler, GraphEvent, GraphBuilder};
+pub use crate::core::{Node, Edge, EventHandler, GraphEvent as CoreGraphEvent, GraphProjection};
 pub use crate::error::{GraphError, Result};
 pub use crate::graphs::{
-    ipld::IpldGraph,
-    context::ContextGraph,
-    workflow::WorkflowGraph,
-    concept::ConceptGraph,
-    composed::ComposedGraph,
+    IpldProjection, IpldCommand,
+    ContextGraph,
+    WorkflowGraph,
+    ConceptGraph,
+    ComposedGraph,
 };
+pub use crate::events::{GraphEvent, GraphCommand, EventPayload};
 
 #[cfg(test)]
 mod tests {

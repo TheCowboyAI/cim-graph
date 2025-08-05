@@ -68,15 +68,23 @@
 //! ```
 
 pub mod ipld;
+pub mod ipld_projection;
+pub mod ipld_event_chain;
+pub mod ipld_projection_engine;
 pub mod context;
+pub mod context_projection;
 pub mod workflow;
 pub mod concept;
 pub mod composed;
+pub mod event_driven_workflow;
 
 #[cfg(test)]
 mod tests;
 
 pub use self::ipld::IpldGraph;
+pub use self::ipld_projection::{IpldProjection, IpldCommand, ipld_command_to_graph_command};
+pub use self::ipld_event_chain::{Cid, CidChain, EventPayload, IpldEventNode, EventChainBuilder, CidGenerator};
+pub use self::ipld_projection_engine::{IpldGraphProjection, build_ipld_projection};
 pub use self::context::ContextGraph;
 pub use self::workflow::WorkflowGraph;
 pub use self::concept::ConceptGraph;

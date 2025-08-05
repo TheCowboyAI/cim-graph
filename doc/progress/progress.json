@@ -1,8 +1,8 @@
 {
   "project": "cim-graph",
   "description": "Unified graph abstraction library consolidating all graph operations across the CIM ecosystem",
-  "current_phase": "COMPLETED",
-  "current_sprint": null,
+  "current_phase": "DESIGN",
+  "current_sprint": "refactoring-design",
   "phase_requirements": {
     "INITIALIZE": [
       "project_setup",
@@ -342,19 +342,131 @@
         "demo_projects": ["task_manager", "knowledge_base"],
         "badges_added": 6
       }
+    },
+    {
+      "event_id": "r1s2t3u4",
+      "timestamp": "2025-08-05T09:00:00-07:00",
+      "event": "RefactoringIdentified",
+      "phase": "DESIGN",
+      "git_commit": null,
+      "caused_by": "o1p6q9r0",
+      "artifacts": [],
+      "details": {
+        "reason": "Fundamental misunderstanding: graphs in CIM are ALWAYS event-driven",
+        "scope": "Complete architectural correction",
+        "discovered_by": "User correction during implementation"
+      }
+    },
+    {
+      "event_id": "s2t3u4v5",
+      "timestamp": "2025-08-05T09:27:00-07:00",
+      "event": "RefactoringDesignCreated",
+      "phase": "DESIGN",
+      "git_commit": null,
+      "caused_by": "r1s2t3u4",
+      "artifacts": ["doc/design/refactoring-design.md", "doc/design/refactoring-plan.md"],
+      "details": {
+        "design_goals": [
+          "Remove all mutations",
+          "Event-driven projections",
+          "IPLD integration",
+          "ECS + DDD patterns",
+          "State machine control"
+        ],
+        "planned_sprints": 6,
+        "estimated_days": 25
+      }
+    },
+    {
+      "event_id": "t3u4v5w6",
+      "timestamp": "2025-08-05T09:37:00-07:00",
+      "event": "EventStormingCompleted",
+      "phase": "DESIGN",
+      "git_commit": null,
+      "caused_by": "s2t3u4v5",
+      "artifacts": ["doc/design/event-storming-session.md"],
+      "details": {
+        "aggregates_discovered": ["Graph", "IPLDChain", "Projection"],
+        "events_identified": 35,
+        "bounded_contexts": 5,
+        "policies_defined": 5,
+        "key_insight": "Graphs are event streams with projections, not data structures"
+      }
+    },
+    {
+      "event_id": "u4v5w6x7",
+      "timestamp": "2025-08-05T11:08:00-07:00",
+      "event": "EventDrivenProjectionsImplemented",
+      "phase": "IMPLEMENTATION",
+      "git_commit": null,
+      "caused_by": "t3u4v5w6",
+      "artifacts": ["src/graphs/workflow.rs", "src/graphs/concept.rs", "src/graphs/composed.rs"],
+      "details": {
+        "graphs_converted": ["WorkflowGraph", "ConceptGraph", "ComposedGraph"],
+        "features_added": [
+          "WorkflowState state machine",
+          "Semantic reasoning for concepts",
+          "Multi-graph composition support"
+        ],
+        "node_types_defined": {
+          "workflow": ["Start", "End", "State", "Decision", "Action", "Wait", "Error"],
+          "concept": ["Concept", "Property", "Instance", "Category", "Rule", "Axiom"],
+          "composed": ["GraphReference", "NodeReference", "Junction", "Transform", "Aggregate"]
+        },
+        "edge_types_defined": {
+          "workflow": ["Transition", "ConditionalTransition", "ErrorTransition", "TimeoutTransition", "EventTransition"],
+          "concept": ["IsA", "HasA", "PartOf", "RelatedTo", "DependsOn", "Implies", "Contradicts"],
+          "composed": ["CrossGraphLink", "DataFlow", "ControlFlow", "Dependency", "Synchronization"]
+        }
+      }
+    },
+    {
+      "event_id": "v5w6x7y8",
+      "timestamp": "2025-08-05T11:18:00-07:00",
+      "event": "CoreEventInfrastructureCompleted",
+      "phase": "IMPLEMENTATION",
+      "git_commit": null,
+      "caused_by": "u4v5w6x7",
+      "artifacts": ["src/core/state_machine.rs", "src/core/ipld_chain.rs", "src/core/policies.rs"],
+      "details": {
+        "components_implemented": [
+          "Graph State Machine with lifecycle states",
+          "IPLD Chain Aggregate for content-addressed storage",
+          "Automated Policies system"
+        ],
+        "state_machine_features": [
+          "Uninitialized -> Initialized -> Active -> Archived transitions",
+          "Command validation based on current state",
+          "Event replay for state reconstruction",
+          "Workflow-specific state machine"
+        ],
+        "ipld_chain_features": [
+          "CID generation for event payloads",
+          "Merkle DAG construction",
+          "Chain verification",
+          "Event ordering and replay"
+        ],
+        "policies_implemented": [
+          "CID Generation Policy",
+          "Projection Update Policy",
+          "State Validation Policy",
+          "Chain Validation Policy",
+          "Collaboration Policy"
+        ]
+      }
     }
   ],
   "statistics": {
-    "total_events": 27,
+    "total_events": 32,
     "events_by_phase": {
       "INITIALIZE": 3,
-      "DESIGN": 9,
+      "DESIGN": 12,
       "PLANNING": 4,
-      "IMPLEMENTATION": 9,
+      "IMPLEMENTATION": 11,
       "TESTING": 1,
       "DEPLOYMENT": 1
     },
     "git_commits": 10,
-    "last_updated": "2025-08-04T14:45:00-07:00"
+    "last_updated": "2025-08-05T11:18:53-07:00"
   }
 }

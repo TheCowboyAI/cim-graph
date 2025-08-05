@@ -1,71 +1,52 @@
-//! Pathfinding algorithms
-//!
-//! Provides algorithms for finding paths in graphs
+//! Pathfinding algorithms for graph projections
 
-use crate::core::{EventGraph, Node, Edge};
-use crate::error::Result;
-use std::collections::{HashMap, HashSet, BinaryHeap};
-use std::cmp::Ordering;
+use crate::core::GraphProjection;
+use crate::error::{GraphError, Result};
+use std::collections::{HashMap, VecDeque};
 
-/// Find shortest path between two nodes using Dijkstra's algorithm
-pub fn shortest_path<N: Node, E: Edge>(
-    graph: &EventGraph<N, E>,
-    start: &str,
-    end: &str,
+/// Find shortest path between two nodes using BFS
+pub fn shortest_path<P: GraphProjection>(
+    projection: &P,
+    from: &str,
+    to: &str,
 ) -> Result<Option<Vec<String>>> {
-    // Check nodes exist
-    if !graph.contains_node(start) || !graph.contains_node(end) {
-        return Ok(None);
+    // Validate nodes exist
+    if projection.get_node(from).is_none() {
+        return Err(GraphError::NodeNotFound(from.to_string()));
+    }
+    if projection.get_node(to).is_none() {
+        return Err(GraphError::NodeNotFound(to.to_string()));
     }
     
-    if start == end {
-        return Ok(Some(vec![start.to_string()]));
-    }
+    // BFS to find shortest path
+    let mut queue = VecDeque::new();
+    let mut visited = HashMap::new();
+    let mut parent: HashMap<String, String> = HashMap::new();
     
-    // Initialize distances and previous nodes
-    let mut distances: HashMap<String, f64> = HashMap::new();
-    let mut previous: HashMap<String, String> = HashMap::new();
-    let mut heap = BinaryHeap::new();
+    queue.push_back(from);
+    visited.insert(from, true);
     
-    // Start with the source node
-    distances.insert(start.to_string(), 0.0);
-    heap.push(State { cost: 0.0, node: start.to_string() });
-    
-    // Process nodes
-    while let Some(State { cost, node }) = heap.pop() {
-        // Found the target
-        if node == end {
+    while let Some(current) = queue.pop_front() {
+        if current == to {
+            // Reconstruct path
             let mut path = Vec::new();
-            let mut current = end.to_string();
+            let mut node = to;
             
-            while current != start {
-                path.push(current.clone());
-                match previous.get(&current) {
-                    Some(prev) => current = prev.clone(),
-                    None => return Ok(None),
-                }
+            while node != from {
+                path.push(node.to_string());
+                node = parent.get(node).unwrap().as_str();
             }
-            
-            path.push(start.to_string());
+            path.push(from.to_string());
             path.reverse();
+            
             return Ok(Some(path));
         }
         
-        // Skip if we've found a better path
-        if distances.get(&node).is_some_and(|&d| cost > d) {
-            continue;
-        }
-        
-        // Check neighbors
-        if let Ok(neighbors) = graph.neighbors(&node) {
-            for neighbor in neighbors {
-                let next_cost = cost + 1.0; // Unit weight for now
-                
-                if next_cost < *distances.get(&neighbor).unwrap_or(&f64::INFINITY) {
-                    distances.insert(neighbor.clone(), next_cost);
-                    previous.insert(neighbor.clone(), node.clone());
-                    heap.push(State { cost: next_cost, node: neighbor });
-                }
+        for neighbor in projection.neighbors(current) {
+            if !visited.contains_key(neighbor) {
+                visited.insert(neighbor, true);
+                parent.insert(neighbor.to_string(), current.to_string());
+                queue.push_back(neighbor);
             }
         }
     }
@@ -73,126 +54,59 @@ pub fn shortest_path<N: Node, E: Edge>(
     Ok(None)
 }
 
-/// Find all paths between two nodes up to a maximum length
-pub fn all_paths<N: Node, E: Edge>(
-    graph: &EventGraph<N, E>,
-    start: &str,
-    end: &str,
-    max_length: usize,
+/// Find all paths between two nodes
+pub fn all_paths<P: GraphProjection>(
+    projection: &P,
+    from: &str,
+    to: &str,
 ) -> Result<Vec<Vec<String>>> {
-    if !graph.contains_node(start) || !graph.contains_node(end) {
-        return Ok(vec![]);
+    // Validate nodes exist
+    if projection.get_node(from).is_none() {
+        return Err(GraphError::NodeNotFound(from.to_string()));
+    }
+    if projection.get_node(to).is_none() {
+        return Err(GraphError::NodeNotFound(to.to_string()));
     }
     
     let mut all_paths = Vec::new();
-    let mut current_path = vec![start.to_string()];
-    let mut visited = HashSet::new();
-    visited.insert(start.to_string());
+    let mut current_path = vec![from.to_string()];
+    let mut visited: HashMap<String, bool> = HashMap::new();
+    visited.insert(from.to_string(), true);
     
-    find_paths_dfs(
-        graph,
-        start,
-        end,
-        &mut current_path,
+    find_all_paths_dfs(
+        projection,
+        from,
+        to,
         &mut visited,
+        &mut current_path,
         &mut all_paths,
-        max_length,
-    )?;
+    );
     
     Ok(all_paths)
 }
 
-/// Helper function for DFS path finding
-fn find_paths_dfs<N: Node, E: Edge>(
-    graph: &EventGraph<N, E>,
+fn find_all_paths_dfs<P: GraphProjection>(
+    projection: &P,
     current: &str,
     target: &str,
-    path: &mut Vec<String>,
-    visited: &mut HashSet<String>,
+    visited: &mut HashMap<String, bool>,
+    current_path: &mut Vec<String>,
     all_paths: &mut Vec<Vec<String>>,
-    max_length: usize,
-) -> Result<()> {
+) {
     if current == target {
-        all_paths.push(path.clone());
-        return Ok(());
+        all_paths.push(current_path.clone());
+        return;
     }
     
-    if path.len() >= max_length {
-        return Ok(());
-    }
-    
-    if let Ok(neighbors) = graph.neighbors(current) {
-        for neighbor in neighbors {
-            if !visited.contains(&neighbor) {
-                visited.insert(neighbor.clone());
-                path.push(neighbor.clone());
-                
-                find_paths_dfs(graph, &neighbor, target, path, visited, all_paths, max_length)?;
-                
-                path.pop();
-                visited.remove(&neighbor);
-            }
-        }
-    }
-    
-    Ok(())
-}
-
-/// State for Dijkstra's algorithm
-#[derive(Clone, PartialEq)]
-struct State {
-    cost: f64,
-    node: String,
-}
-
-impl Eq for State {}
-
-impl Ord for State {
-    fn cmp(&self, other: &Self) -> Ordering {
-        // Reverse order for min-heap
-        other.cost.partial_cmp(&self.cost).unwrap_or(Ordering::Equal)
-    }
-}
-
-impl PartialOrd for State {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::core::{GraphBuilder, GraphType};
-    use crate::core::node::GenericNode;
-    use crate::core::edge::GenericEdge;
-    
-    #[test]
-    fn test_shortest_path() {
-        let mut graph = GraphBuilder::new()
-            .graph_type(GraphType::Generic)
-            .build_event()
-            .unwrap();
+    for neighbor in projection.neighbors(current) {
+        if !visited.contains_key(neighbor) {
+            visited.insert(neighbor.to_string(), true);
+            current_path.push(neighbor.to_string());
             
-        // Create a simple graph: A -> B -> C
-        //                         \-> D -> C
-        graph.add_node(GenericNode::new("A", "data")).unwrap();
-        graph.add_node(GenericNode::new("B", "data")).unwrap();
-        graph.add_node(GenericNode::new("C", "data")).unwrap();
-        graph.add_node(GenericNode::new("D", "data")).unwrap();
-        
-        graph.add_edge(GenericEdge::new("A", "B", 1.0)).unwrap();
-        graph.add_edge(GenericEdge::new("B", "C", 1.0)).unwrap();
-        graph.add_edge(GenericEdge::new("A", "D", 1.0)).unwrap();
-        graph.add_edge(GenericEdge::new("D", "C", 1.0)).unwrap();
-        
-        // Find shortest path
-        let path = shortest_path(&graph, "A", "C").unwrap();
-        assert!(path.is_some());
-        
-        let path = path.unwrap();
-        assert_eq!(path.len(), 3); // A -> B -> C or A -> D -> C
-        assert_eq!(path[0], "A");
-        assert_eq!(path[2], "C");
+            find_all_paths_dfs(projection, neighbor, target, visited, current_path, all_paths);
+            
+            current_path.pop();
+            visited.remove(neighbor);
+        }
     }
 }

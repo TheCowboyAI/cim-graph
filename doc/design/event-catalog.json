@@ -1,0 +1,560 @@
+{
+  "domain": "cim-graph",
+  "version": "2.0.0",
+  "generated_from": "event-storming-session.md",
+  "timestamp": "2025-08-05T09:45:00-07:00",
+  
+  "aggregates": {
+    "Graph": {
+      "id": "aggregate_id",
+      "description": "Core graph aggregate for all graph operations",
+      "commands": [
+        {
+          "name": "InitializeGraph",
+          "produces": "GraphInitialized",
+          "parameters": {
+            "aggregate_id": "UUID",
+            "graph_type": "GraphType",
+            "metadata": "Map<String, Value>"
+          }
+        },
+        {
+          "name": "AddNode",
+          "produces": "NodeAdded",
+          "parameters": {
+            "node_id": "String",
+            "node_type": "String",
+            "data": "JSON"
+          }
+        },
+        {
+          "name": "AddEdge",
+          "produces": "EdgeAdded",
+          "parameters": {
+            "edge_id": "String",
+            "source_id": "String",
+            "target_id": "String",
+            "edge_type": "String",
+            "data": "JSON"
+          }
+        },
+        {
+          "name": "RemoveNode",
+          "produces": "NodeRemoved",
+          "parameters": {
+            "node_id": "String"
+          }
+        },
+        {
+          "name": "RemoveEdge",
+          "produces": "EdgeRemoved",
+          "parameters": {
+            "edge_id": "String"
+          }
+        }
+      ],
+      "events": [
+        {
+          "name": "GraphInitialized",
+          "data": {
+            "aggregate_id": "UUID",
+            "graph_type": "GraphType",
+            "metadata": "Map<String, Value>"
+          }
+        },
+        {
+          "name": "NodeAdded",
+          "data": {
+            "node_id": "String",
+            "node_type": "String",
+            "data": "JSON"
+          }
+        },
+        {
+          "name": "EdgeAdded",
+          "data": {
+            "edge_id": "String",
+            "source_id": "String",
+            "target_id": "String",
+            "edge_type": "String",
+            "data": "JSON"
+          }
+        },
+        {
+          "name": "NodeRemoved",
+          "data": {
+            "node_id": "String"
+          }
+        },
+        {
+          "name": "EdgeRemoved",
+          "data": {
+            "edge_id": "String"
+          }
+        }
+      ],
+      "invariants": [
+        "Nodes must exist before edges can connect them",
+        "Graph type cannot change after initialization",
+        "All changes must go through state machine"
+      ],
+      "state_machine": {
+        "states": [
+          "Uninitialized",
+          "Initialized",
+          "Active",
+          "Archived"
+        ],
+        "transitions": [
+          {
+            "from": "Uninitialized",
+            "to": "Initialized",
+            "via": "InitializeGraph"
+          },
+          {
+            "from": "Initialized",
+            "to": "Active",
+            "via": "AddNode"
+          },
+          {
+            "from": "Active",
+            "to": "Active",
+            "via": ["AddNode", "AddEdge", "RemoveNode", "RemoveEdge"]
+          },
+          {
+            "from": "Active",
+            "to": "Archived",
+            "via": "ArchiveGraph"
+          }
+        ]
+      }
+    },
+    
+    "IPLDChain": {
+      "id": "root_cid",
+      "description": "IPLD chain for content-addressed event storage",
+      "commands": [
+        {
+          "name": "AddCID",
+          "produces": "CIDGenerated",
+          "parameters": {
+            "event_id": "UUID",
+            "payload": "EventData"
+          }
+        },
+        {
+          "name": "LinkCIDs",
+          "produces": "CIDLinked",
+          "parameters": {
+            "current_cid": "CID",
+            "previous_cid": "CID"
+          }
+        },
+        {
+          "name": "PinCID",
+          "produces": "CIDPinned",
+          "parameters": {
+            "cid": "CID"
+          }
+        },
+        {
+          "name": "VerifyChain",
+          "produces": "ChainVerified",
+          "parameters": {
+            "root_cid": "CID"
+          }
+        }
+      ],
+      "events": [
+        {
+          "name": "CIDGenerated",
+          "data": {
+            "event_id": "UUID",
+            "cid": "CID",
+            "payload_size": "Integer"
+          }
+        },
+        {
+          "name": "CIDLinked",
+          "data": {
+            "current_cid": "CID",
+            "previous_cid": "CID",
+            "sequence": "Integer"
+          }
+        },
+        {
+          "name": "CIDPinned",
+          "data": {
+            "cid": "CID",
+            "pinned_at": "DateTime"
+          }
+        },
+        {
+          "name": "CIDUnpinned",
+          "data": {
+            "cid": "CID",
+            "unpinned_at": "DateTime"
+          }
+        },
+        {
+          "name": "ChainValidated",
+          "data": {
+            "root_cid": "CID",
+            "chain_length": "Integer",
+            "is_valid": "Boolean"
+          }
+        }
+      ],
+      "invariants": [
+        "CIDs are immutable",
+        "Links form DAG (no cycles)",
+        "Previous CID must exist"
+      ]
+    },
+    
+    "Projection": {
+      "id": "aggregate_id_version",
+      "description": "Read-only projections built from event streams",
+      "commands": [
+        {
+          "name": "BuildProjection",
+          "produces": "ProjectionBuilt",
+          "parameters": {
+            "aggregate_id": "UUID",
+            "from_version": "Integer",
+            "to_version": "Integer"
+          }
+        },
+        {
+          "name": "CacheProjection",
+          "produces": "ProjectionCached",
+          "parameters": {
+            "aggregate_id": "UUID",
+            "version": "Integer"
+          }
+        },
+        {
+          "name": "InvalidateCache",
+          "produces": "CacheInvalidated",
+          "parameters": {
+            "aggregate_id": "UUID"
+          }
+        }
+      ],
+      "events": [
+        {
+          "name": "ProjectionBuilt",
+          "data": {
+            "aggregate_id": "UUID",
+            "version": "Integer",
+            "event_count": "Integer"
+          }
+        },
+        {
+          "name": "ProjectionCached",
+          "data": {
+            "aggregate_id": "UUID",
+            "version": "Integer",
+            "cache_key": "String"
+          }
+        },
+        {
+          "name": "CacheInvalidated",
+          "data": {
+            "aggregate_id": "UUID",
+            "reason": "String"
+          }
+        }
+      ],
+      "invariants": [
+        "Projections are read-only",
+        "Version matches event sequence",
+        "Built from complete event stream"
+      ]
+    }
+  },
+  
+  "entities": {
+    "Node": {
+      "description": "Graph node entity",
+      "properties": {
+        "id": "String (CID for IPLD, UUID for others)",
+        "components": "HashMap<String, Value>"
+      },
+      "belongs_to": "Graph"
+    },
+    "Edge": {
+      "description": "Graph edge entity",
+      "properties": {
+        "id": "String",
+        "source": "Node ID",
+        "target": "Node ID",
+        "components": "HashMap<String, Value>"
+      },
+      "belongs_to": "Graph"
+    },
+    "EventPayload": {
+      "description": "IPLD event payload",
+      "properties": {
+        "cid": "CID",
+        "data": "Serialized event data",
+        "previous": "Optional<CID>"
+      },
+      "belongs_to": "IPLDChain"
+    }
+  },
+  
+  "value_objects": {
+    "CID": {
+      "description": "Content Identifier",
+      "properties": {
+        "hash": "String",
+        "codec": "String"
+      },
+      "immutable": true
+    },
+    "GraphType": {
+      "description": "Type of graph",
+      "enum": ["Generic", "IPLD", "Context", "Workflow", "Concept", "Composed"],
+      "immutable": true
+    },
+    "ComponentData": {
+      "description": "Component data for ECS",
+      "properties": {
+        "type": "String",
+        "value": "JSON"
+      },
+      "immutable": true
+    },
+    "StateTransition": {
+      "description": "State machine transition",
+      "properties": {
+        "from": "State",
+        "to": "State",
+        "trigger": "Command"
+      },
+      "immutable": true
+    }
+  },
+  
+  "policies": {
+    "CIDGenerationPolicy": {
+      "trigger": "Any Event Created",
+      "action": "Generate CID from event payload",
+      "rules": [
+        "Use cim-ipld for generation",
+        "Include previous CID if exists",
+        "Store in event metadata"
+      ]
+    },
+    "ProjectionUpdatePolicy": {
+      "trigger": "Event Published",
+      "action": "Update affected projections",
+      "rules": [
+        "Only update projections for same aggregate",
+        "Maintain version consistency",
+        "Invalidate caches"
+      ]
+    },
+    "StateValidationPolicy": {
+      "trigger": "Command Received",
+      "action": "Validate against current state",
+      "rules": [
+        "Check state machine rules",
+        "Verify invariants",
+        "Return error if invalid"
+      ]
+    },
+    "ChainValidationPolicy": {
+      "trigger": "CID Chain Modified",
+      "action": "Verify chain integrity",
+      "rules": [
+        "All CIDs must be valid",
+        "Links must form DAG",
+        "Previous references must exist"
+      ]
+    },
+    "CollaborationPolicy": {
+      "trigger": "Client Subscribed",
+      "action": "Replay events from sequence",
+      "rules": [
+        "Start from client's last known sequence",
+        "Send in order",
+        "Include all metadata"
+      ]
+    }
+  },
+  
+  "bounded_contexts": {
+    "GraphContext": {
+      "name": "Graph Context",
+      "aggregates": ["Graph"],
+      "entities": ["Node", "Edge"],
+      "commands": ["GraphCommand"],
+      "events": ["GraphEvent"],
+      "projections": ["GraphProjection"]
+    },
+    "IPLDContext": {
+      "name": "IPLD Context",
+      "aggregates": ["IPLDChain"],
+      "entities": ["EventPayload"],
+      "policies": ["CIDGenerationPolicy"],
+      "relationships": {
+        "upstream_to": ["GraphContext"]
+      }
+    },
+    "StateMachineContext": {
+      "name": "State Machine Context",
+      "responsibilities": ["State Transitions", "Command Validation", "Policy Execution"],
+      "relationships": {
+        "upstream_to": ["GraphContext"]
+      }
+    },
+    "ProjectionContext": {
+      "name": "Projection Context",
+      "aggregates": ["Projection"],
+      "responsibilities": ["Query Systems", "Cache Management"],
+      "relationships": {
+        "customer_of": ["GraphContext"]
+      }
+    },
+    "CollaborationContext": {
+      "name": "Collaboration Context",
+      "responsibilities": ["Event Streaming", "Client Subscriptions", "Real-time Updates"],
+      "relationships": {
+        "customer_of": ["ProjectionContext"]
+      }
+    }
+  },
+  
+  "context_relationships": [
+    {
+      "from": "GraphContext",
+      "to": "IPLDContext",
+      "type": "upstream-downstream",
+      "description": "Graph events get CIDs from IPLD context"
+    },
+    {
+      "from": "GraphContext",
+      "to": "StateMachineContext",
+      "type": "upstream-downstream",
+      "description": "All commands validated by state machine"
+    },
+    {
+      "from": "GraphContext",
+      "to": "ProjectionContext",
+      "type": "upstream-downstream",
+      "description": "Events build projections"
+    },
+    {
+      "from": "ProjectionContext",
+      "to": "CollaborationContext",
+      "type": "customer-supplier",
+      "description": "Projections served to clients"
+    }
+  ],
+  
+  "implementation_priority": [
+    {
+      "phase": 1,
+      "name": "Core Event Infrastructure",
+      "description": "Foundation",
+      "tasks": [
+        "GraphEvent with correlation/causation",
+        "EventPayload definitions",
+        "Command definitions"
+      ]
+    },
+    {
+      "phase": 2,
+      "name": "IPLD Integration",
+      "description": "Heart of storage",
+      "tasks": [
+        "CID generation for all payloads",
+        "Chain construction",
+        "DAG verification"
+      ]
+    },
+    {
+      "phase": 3,
+      "name": "State Machine",
+      "description": "Control layer",
+      "tasks": [
+        "Command validation",
+        "State transitions",
+        "Policy execution"
+      ]
+    },
+    {
+      "phase": 4,
+      "name": "Projections",
+      "description": "Read layer",
+      "tasks": [
+        "Fold events to state",
+        "Query systems",
+        "Cache management"
+      ]
+    },
+    {
+      "phase": 5,
+      "name": "Collaboration",
+      "description": "Distribution",
+      "tasks": [
+        "NATS integration",
+        "Event streaming",
+        "Multi-client sync"
+      ]
+    }
+  ],
+  
+  "key_insights": [
+    "Everything is an Event - No direct state changes",
+    "CIDs are Central - Every payload gets a CID",
+    "Projections are Ephemeral - Can rebuild from events",
+    "State Machines Control - All transitions validated",
+    "Collaboration is Native - Multi-client by design"
+  ],
+  
+  "discovered_patterns": {
+    "command_event_pairs": [
+      ["Create Graph", "Graph Created"],
+      ["Initialize Graph", "Graph Initialized"],
+      ["Add CID", "CID Generated + Node Added"],
+      ["Link CIDs", "CID Linked + Edge Added"],
+      ["Create Bounded Context", "Context Bounded"],
+      ["Add Aggregate", "Aggregate Defined"],
+      ["Define Workflow", "Workflow Created"],
+      ["Trigger Transition", "State Transitioned"],
+      ["Define Concept", "Concept Defined"],
+      ["Run Inference", "Property Inferred"]
+    ],
+    "event_cascades": [
+      {
+        "trigger": "Graph Created",
+        "cascade": ["Graph Initialized", "CID Generated", "Projection Built", "Client Subscribed"]
+      },
+      {
+        "trigger": "Low Stock Detected",
+        "cascade": ["Check Supplier Availability", "Create Purchase Order", "Send Order"]
+      }
+    ],
+    "parallel_flows": [
+      {
+        "name": "IPLD Flow",
+        "events": ["CID Generated", "CID Linked", "DAG Verified"]
+      },
+      {
+        "name": "DDD Flow",
+        "events": ["Context Bounded", "Aggregate Defined", "Entity Created"]
+      },
+      {
+        "name": "Workflow Flow",
+        "events": ["State Transitioned", "Policy Executed", "Workflow Completed"]
+      },
+      {
+        "name": "Reasoning Flow",
+        "events": ["Concept Defined", "Property Inferred", "Reasoning Path Found"]
+      }
+    ]
+  }
+}

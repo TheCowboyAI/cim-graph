@@ -1,629 +1,474 @@
-//! Concept graph for semantic reasoning and knowledge representation
-//! 
-//! Represents concepts, properties, and semantic relationships
+//! Concept graph - semantic reasoning (event-driven projection)
 
-use crate::core::{EventGraph, EventHandler, GraphBuilder, GraphType};
-use crate::error::Result;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
-/// Types of concepts in a semantic graph
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ConceptType {
-    /// Class or category
-    Class,
-    /// Instance of a class
-    Instance,
-    /// Property or attribute
+pub use crate::core::projection_engine::GenericGraphProjection;
+pub use crate::core::{Node, Edge};
+
+/// Concept graph projection
+pub type ConceptGraph = GenericGraphProjection<ConceptNode, ConceptEdge>;
+
+/// Concept projection with additional semantic reasoning methods
+pub type ConceptProjection = ConceptGraph;
+
+/// Type of concept node
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ConceptNodeType {
+    /// Core concept or idea
+    Concept,
+    /// Property of a concept
     Property,
-    /// Relation between concepts
-    Relation,
-    /// Axiom or rule
+    /// Instance of a concept
+    Instance,
+    /// Category or class
+    Category,
+    /// Rule or constraint
+    Rule,
+    /// Axiom or fundamental truth
     Axiom,
-    /// Literal value
-    Literal,
 }
 
-/// Node representing a concept in the semantic graph
+/// Concept node represents semantic knowledge
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConceptNode {
-    /// Unique identifier (often an IRI in semantic web)
-    id: String,
-    /// Human-readable label
-    label: String,
-    /// Type of concept
-    concept_type: ConceptType,
-    /// Properties and their values
-    properties: HashMap<String, Vec<serde_json::Value>>,
-    /// Annotations (metadata)
-    annotations: HashMap<String, String>,
+    pub id: String,
+    pub name: String,
+    pub node_type: ConceptNodeType,
+    pub description: Option<String>,
+    pub properties: HashMap<String, serde_json::Value>,
+    pub metadata: HashMap<String, serde_json::Value>,
 }
 
 impl ConceptNode {
     /// Create a new concept node
-    pub fn new(id: impl Into<String>, label: impl Into<String>, concept_type: ConceptType) -> Self {
+    pub fn new(id: impl Into<String>, name: impl Into<String>, node_type: ConceptNodeType) -> Self {
         Self {
             id: id.into(),
-            label: label.into(),
-            concept_type,
+            name: name.into(),
+            node_type,
+            description: None,
             properties: HashMap::new(),
-            annotations: HashMap::new(),
+            metadata: HashMap::new(),
         }
     }
-    
-    /// Add a property value
-    pub fn add_property(&mut self, property: impl Into<String>, value: serde_json::Value) {
-        self.properties
-            .entry(property.into())
-            .or_default()
-            .push(value);
+
+    /// Create a concept
+    pub fn concept(id: impl Into<String>, name: impl Into<String>) -> Self {
+        Self::new(id, name, ConceptNodeType::Concept)
     }
-    
-    /// Get property values
-    pub fn get_property(&self, property: &str) -> Option<&Vec<serde_json::Value>> {
-        self.properties.get(property)
+
+    /// Create a property
+    pub fn property(id: impl Into<String>, name: impl Into<String>) -> Self {
+        Self::new(id, name, ConceptNodeType::Property)
     }
-    
-    /// Add an annotation
-    pub fn add_annotation(&mut self, key: impl Into<String>, value: impl Into<String>) {
-        self.annotations.insert(key.into(), value.into());
+
+    /// Create an instance
+    pub fn instance(id: impl Into<String>, name: impl Into<String>) -> Self {
+        Self::new(id, name, ConceptNodeType::Instance)
     }
-    
-    /// Get concept type
-    pub fn concept_type(&self) -> ConceptType {
-        self.concept_type
+
+    /// Create a category
+    pub fn category(id: impl Into<String>, name: impl Into<String>) -> Self {
+        Self::new(id, name, ConceptNodeType::Category)
     }
-    
-    /// Get label
-    pub fn label(&self) -> &str {
-        &self.label
+
+    /// Create a rule
+    pub fn rule(id: impl Into<String>, name: impl Into<String>) -> Self {
+        Self::new(id, name, ConceptNodeType::Rule)
     }
-    
-    /// Get name (alias for label)
-    pub fn name(&self) -> &str {
-        &self.label
+
+    /// Create an axiom
+    pub fn axiom(id: impl Into<String>, name: impl Into<String>) -> Self {
+        Self::new(id, name, ConceptNodeType::Axiom)
+    }
+
+    /// Add a description
+    pub fn with_description(mut self, description: impl Into<String>) -> Self {
+        self.description = Some(description.into());
+        self
+    }
+
+    /// Add a property
+    pub fn with_property(mut self, key: impl Into<String>, value: serde_json::Value) -> Self {
+        self.properties.insert(key.into(), value);
+        self
     }
 }
 
-impl crate::core::Node for ConceptNode {
+impl Node for ConceptNode {
     fn id(&self) -> String {
         self.id.clone()
     }
 }
 
-/// Types of semantic relationships
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum SemanticRelation {
-    /// Subclass relationship (is-a)
-    SubClassOf,
-    /// Subclass relationship (alternate name)
+/// Type of semantic relationship
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum RelationType {
+    /// IS-A relationship (inheritance)
     IsA,
-    /// Instance relationship (instance-of)
-    InstanceOf,
-    /// Part-whole relationship (part-of)
+    /// HAS-A relationship (composition)
+    HasA,
+    /// PART-OF relationship
     PartOf,
-    /// Property domain
-    HasDomain,
-    /// Property range
-    HasRange,
-    /// Equivalence
-    EquivalentTo,
-    /// Object property
-    HasProperty,
-    /// Disjointness
-    DisjointWith,
-    /// Contradiction
+    /// RELATED-TO relationship
+    RelatedTo,
+    /// DEPENDS-ON relationship
+    DependsOn,
+    /// IMPLIES relationship
+    Implies,
+    /// CONTRADICTS relationship
     Contradicts,
-    /// Causes relationship
+    /// SIMILAR-TO relationship
+    SimilarTo,
+    /// DIFFERENT-FROM relationship
+    DifferentFrom,
+    /// INSTANCE-OF relationship
+    InstanceOf,
+    /// PROPERTY-OF relationship
+    PropertyOf,
+    /// CAUSES relationship
     Causes,
-    /// Treats relationship
-    Treats,
-    /// Custom relation
-    Custom,
+    /// PRECEDES relationship
+    Precedes,
+    /// Custom relationship
+    Custom(String),
 }
 
-impl std::fmt::Display for SemanticRelation {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            SemanticRelation::SubClassOf => write!(f, "subClassOf"),
-            SemanticRelation::IsA => write!(f, "isA"),
-            SemanticRelation::InstanceOf => write!(f, "instanceOf"),
-            SemanticRelation::PartOf => write!(f, "partOf"),
-            SemanticRelation::HasDomain => write!(f, "hasDomain"),
-            SemanticRelation::HasRange => write!(f, "hasRange"),
-            SemanticRelation::EquivalentTo => write!(f, "equivalentTo"),
-            SemanticRelation::HasProperty => write!(f, "hasProperty"),
-            SemanticRelation::DisjointWith => write!(f, "disjointWith"),
-            SemanticRelation::Contradicts => write!(f, "contradicts"),
-            SemanticRelation::Causes => write!(f, "causes"),
-            SemanticRelation::Treats => write!(f, "treats"),
-            SemanticRelation::Custom => write!(f, "custom"),
-        }
-    }
-}
-
-/// Edge representing a semantic relationship
+/// Concept edge represents semantic relationships
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConceptEdge {
-    /// Unique identifier
     pub id: String,
-    /// Source concept
     pub source: String,
-    /// Target concept
     pub target: String,
-    /// Type of relation
-    pub relation: SemanticRelation,
-    /// Relation label (for custom relations)
-    label: String,
-    /// Confidence or weight
-    confidence: f32,
-    /// Properties of the relation
-    properties: HashMap<String, serde_json::Value>,
+    pub relation_type: RelationType,
+    pub strength: f32, // 0.0 to 1.0
+    pub metadata: HashMap<String, serde_json::Value>,
 }
 
 impl ConceptEdge {
-    /// Create a new semantic edge
+    /// Create a new concept edge
     pub fn new(
+        id: impl Into<String>,
         source: impl Into<String>,
         target: impl Into<String>,
-        relation: SemanticRelation,
+        relation_type: RelationType,
     ) -> Self {
-        let source = source.into();
-        let target = target.into();
-        let label = format!("{:?}", relation);
-        let id = format!("{}:{}:{}", source, label, target);
-        
         Self {
-            id,
-            source,
-            target,
-            relation,
-            label,
-            confidence: 1.0,
-            properties: HashMap::new(),
+            id: id.into(),
+            source: source.into(),
+            target: target.into(),
+            relation_type,
+            strength: 1.0,
+            metadata: HashMap::new(),
         }
     }
-    
-    /// Create a custom relation
-    pub fn custom(
+
+    /// Create an IS-A relationship
+    pub fn is_a(
+        id: impl Into<String>,
         source: impl Into<String>,
         target: impl Into<String>,
-        label: impl Into<String>,
     ) -> Self {
-        let source = source.into();
-        let target = target.into();
-        let label = label.into();
-        let id = format!("{}:{}:{}", source, label, target);
-        
-        Self {
-            id,
-            source,
-            target,
-            relation: SemanticRelation::Custom,
-            label,
-            confidence: 1.0,
-            properties: HashMap::new(),
-        }
+        Self::new(id, source, target, RelationType::IsA)
     }
-    
-    /// Set confidence
-    pub fn with_confidence(mut self, confidence: f32) -> Self {
-        self.confidence = confidence;
+
+    /// Create a HAS-A relationship
+    pub fn has_a(
+        id: impl Into<String>,
+        source: impl Into<String>,
+        target: impl Into<String>,
+    ) -> Self {
+        Self::new(id, source, target, RelationType::HasA)
+    }
+
+    /// Create an INSTANCE-OF relationship
+    pub fn instance_of(
+        id: impl Into<String>,
+        source: impl Into<String>,
+        target: impl Into<String>,
+    ) -> Self {
+        Self::new(id, source, target, RelationType::InstanceOf)
+    }
+
+    /// Create a PROPERTY-OF relationship
+    pub fn property_of(
+        id: impl Into<String>,
+        source: impl Into<String>,
+        target: impl Into<String>,
+    ) -> Self {
+        Self::new(id, source, target, RelationType::PropertyOf)
+    }
+
+    /// Set the strength of the relationship
+    pub fn with_strength(mut self, strength: f32) -> Self {
+        self.strength = strength.clamp(0.0, 1.0);
         self
-    }
-    
-    /// Get relation type
-    pub fn relation(&self) -> SemanticRelation {
-        self.relation
-    }
-    
-    /// Get confidence
-    pub fn confidence(&self) -> f32 {
-        self.confidence
     }
 }
 
-impl crate::core::Edge for ConceptEdge {
+impl Edge for ConceptEdge {
     fn id(&self) -> String {
         self.id.clone()
     }
-    
     fn source(&self) -> String {
         self.source.clone()
     }
-    
     fn target(&self) -> String {
         self.target.clone()
     }
 }
 
-/// Semantic reasoning graph
-pub struct ConceptGraph {
-    /// Underlying event-driven graph
-    graph: EventGraph<ConceptNode, ConceptEdge>,
-    /// Inference rules
-    rules: Vec<InferenceRule>,
-    /// Inferred relationships (cached)
-    inferred: HashMap<String, Vec<(String, SemanticRelation)>>,
-}
+/// Extension methods for ConceptProjection
+impl ConceptProjection {
+    /// Get all concepts
+    pub fn get_concepts(&self) -> Vec<&ConceptNode> {
+        self.nodes()
+            .filter(|n| matches!(n.node_type, ConceptNodeType::Concept))
+            .collect()
+    }
 
-/// Simple inference rule
-#[derive(Debug, Clone)]
-pub struct InferenceRule {
-    #[allow(dead_code)]
-    name: String,
-    condition: fn(&ConceptGraph, &str, &str) -> bool,
-    conclusion: fn(&str, &str) -> (String, String, SemanticRelation),
-}
+    /// Get all categories
+    pub fn get_categories(&self) -> Vec<&ConceptNode> {
+        self.nodes()
+            .filter(|n| matches!(n.node_type, ConceptNodeType::Category))
+            .collect()
+    }
 
-impl ConceptGraph {
-    /// Create a new concept graph
-    pub fn new() -> Self {
-        let graph = GraphBuilder::new()
-            .graph_type(GraphType::ConceptGraph)
-            .build_event()
-            .expect("Failed to create concept graph");
-            
-        let mut rules = Vec::new();
+    /// Get all instances of a concept
+    pub fn get_instances_of(&self, concept_id: &str) -> Vec<&ConceptNode> {
+        self.edges()
+            .filter(|e| {
+                matches!(e.relation_type, RelationType::InstanceOf) && e.target() == concept_id
+            })
+            .filter_map(|e| self.get_node(&e.source()))
+            .collect()
+    }
+
+    /// Get all properties of a concept
+    pub fn get_properties_of(&self, concept_id: &str) -> Vec<&ConceptNode> {
+        self.edges()
+            .filter(|e| {
+                matches!(e.relation_type, RelationType::PropertyOf) && e.target() == concept_id
+            })
+            .filter_map(|e| self.get_node(&e.source()))
+            .collect()
+    }
+
+    /// Get all parent concepts (IS-A relationships)
+    pub fn get_parents(&self, concept_id: &str) -> Vec<&ConceptNode> {
+        self.edges()
+            .filter(|e| {
+                matches!(e.relation_type, RelationType::IsA) && e.source() == concept_id
+            })
+            .filter_map(|e| self.get_node(&e.target()))
+            .collect()
+    }
+
+    /// Get all child concepts (inverse IS-A relationships)
+    pub fn get_children(&self, concept_id: &str) -> Vec<&ConceptNode> {
+        self.edges()
+            .filter(|e| {
+                matches!(e.relation_type, RelationType::IsA) && e.target() == concept_id
+            })
+            .filter_map(|e| self.get_node(&e.source()))
+            .collect()
+    }
+
+    /// Find all concepts related by a specific relation type
+    pub fn get_related(&self, concept_id: &str, relation: &RelationType) -> Vec<&ConceptNode> {
+        self.edges()
+            .filter(|e| &e.relation_type == relation && e.source() == concept_id)
+            .filter_map(|e| self.get_node(&e.target()))
+            .collect()
+    }
+
+    /// Calculate semantic distance between two concepts
+    pub fn semantic_distance(&self, from: &str, to: &str) -> Option<f32> {
+        use std::collections::{HashMap, BinaryHeap};
+        use std::cmp::Ordering;
         
-        // Add basic inference rules
-        rules.push(InferenceRule {
-            name: "Transitive SubClassOf".to_string(),
-            condition: |g, a, c| {
-                // If A subClassOf B and B subClassOf C
-                g.graph.node_ids().iter().any(|b| {
-                    g.has_relation(a, b, SemanticRelation::SubClassOf) &&
-                    g.has_relation(b, c, SemanticRelation::SubClassOf)
-                })
-            },
-            conclusion: |a, c| (a.to_string(), c.to_string(), SemanticRelation::SubClassOf),
-        });
-        
-        rules.push(InferenceRule {
-            name: "Instance inheritance".to_string(),
-            condition: |g, inst, class| {
-                // If inst instanceOf A and A subClassOf class
-                g.graph.node_ids().iter().any(|a| {
-                    g.has_relation(inst, a, SemanticRelation::InstanceOf) &&
-                    g.has_relation(a, class, SemanticRelation::SubClassOf)
-                })
-            },
-            conclusion: |inst, class| (inst.to_string(), class.to_string(), SemanticRelation::InstanceOf),
-        });
-            
-        Self {
-            graph,
-            rules,
-            inferred: HashMap::new(),
+        #[derive(Clone, PartialEq)]
+        struct State {
+            cost: f32,
+            node: String,
         }
-    }
-    
-    /// Create with event handler
-    pub fn with_handler(handler: Arc<dyn EventHandler>) -> Self {
-        let graph = GraphBuilder::new()
-            .graph_type(GraphType::ConceptGraph)
-            .add_handler(handler)
-            .build_event()
-            .expect("Failed to create concept graph");
-            
-        let mut instance = Self {
-            graph,
-            rules: Vec::new(),
-            inferred: HashMap::new(),
-        };
         
-        // Add the same inference rules
-        instance.rules = Self::new().rules;
-        instance
-    }
-    
-    /// Add a concept
-    pub fn add_concept(&mut self, id: &str, name: &str, properties: serde_json::Value) -> Result<String> {
-        let mut concept = ConceptNode::new(id, name, ConceptType::Class);
+        impl Eq for State {}
         
-        // Add properties from JSON
-        if let Some(obj) = properties.as_object() {
-            for (key, value) in obj {
-                concept.add_property(key, value.clone());
+        impl Ord for State {
+            fn cmp(&self, other: &Self) -> Ordering {
+                other.cost.partial_cmp(&self.cost).unwrap_or(Ordering::Equal)
             }
         }
         
-        self.graph.add_node(concept)
-    }
-    
-    /// Add a semantic relationship
-    pub fn add_relation(&mut self, from: &str, to: &str, relation: SemanticRelation) -> Result<String> {
-        // Clear inferred cache when new relations are added
-        self.inferred.clear();
-        let edge = ConceptEdge::new(from, to, relation);
-        self.graph.add_edge(edge)
-    }
-    
-    /// Check if a relation exists (including inferred)
-    pub fn has_relation(&self, from: &str, to: &str, relation: SemanticRelation) -> bool {
-        // Check explicit relations
-        let edges = self.graph.edges_between(from, to);
-        if edges.iter().any(|e| e.relation() == relation) {
-            return true;
-        }
-        
-        // Check inferred relations
-        if let Some(inferred) = self.inferred.get(from) {
-            if inferred.iter().any(|(target, rel)| target == to && *rel == relation) {
-                return true;
+        impl PartialOrd for State {
+            fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+                Some(self.cmp(other))
             }
         }
         
-        false
-    }
-    
-    /// Run inference to derive new relationships
-    pub fn run_inference(&mut self) {
-        let mut new_inferences = Vec::new();
+        let mut dist = HashMap::new();
+        let mut heap = BinaryHeap::new();
         
-        // Apply each rule
-        for rule in &self.rules {
-            for a in self.graph.node_ids() {
-                for c in self.graph.node_ids() {
-                    if a != c && (rule.condition)(self, &a, &c) {
-                        let (from, to, rel) = (rule.conclusion)(&a, &c);
-                        
-                        // Don't add if already exists
-                        if !self.has_relation(&from, &to, rel) {
-                            new_inferences.push((from, to, rel));
+        dist.insert(from.to_string(), 0.0);
+        heap.push(State { cost: 0.0, node: from.to_string() });
+        
+        while let Some(State { cost, node }) = heap.pop() {
+            if node == to {
+                return Some(cost);
+            }
+            
+            if cost > *dist.get(&node).unwrap_or(&f32::INFINITY) {
+                continue;
+            }
+            
+            for edge in self.edges().filter(|e| e.source() == node) {
+                let next = State {
+                    cost: cost + (1.0 - edge.strength),
+                    node: edge.target(),
+                };
+                
+                if next.cost < *dist.get(&next.node).unwrap_or(&f32::INFINITY) {
+                    heap.push(next.clone());
+                    dist.insert(next.node, next.cost);
+                }
+            }
+        }
+        
+        None
+    }
+
+    /// Find all paths between two concepts
+    pub fn find_reasoning_paths(&self, from: &str, to: &str, max_depth: usize) -> Vec<Vec<String>> {
+        let mut paths = Vec::new();
+        let mut current_path = vec![from.to_string()];
+        let mut visited = std::collections::HashSet::new();
+        
+        self.dfs_paths(from, to, &mut current_path, &mut visited, &mut paths, max_depth);
+        
+        paths
+    }
+
+    fn dfs_paths(
+        &self,
+        current: &str,
+        target: &str,
+        path: &mut Vec<String>,
+        visited: &mut std::collections::HashSet<String>,
+        paths: &mut Vec<Vec<String>>,
+        max_depth: usize,
+    ) {
+        if current == target {
+            paths.push(path.clone());
+            return;
+        }
+        
+        if path.len() >= max_depth {
+            return;
+        }
+        
+        visited.insert(current.to_string());
+        
+        for edge in self.edges().filter(|e| e.source() == current) {
+            let next = edge.target();
+            if !visited.contains(&next) {
+                path.push(next.clone());
+                self.dfs_paths(&next, target, path, visited, paths, max_depth);
+                path.pop();
+            }
+        }
+        
+        visited.remove(current);
+    }
+
+    /// Infer new relationships based on existing ones
+    pub fn infer_relationships(&self) -> Vec<(String, String, RelationType)> {
+        let mut inferred = Vec::new();
+        
+        // Transitivity of IS-A relationships
+        for node in self.nodes() {
+            let parents = self.get_parents(&node.id);
+            for parent in &parents {
+                let grandparents = self.get_parents(&parent.id);
+                for grandparent in grandparents {
+                    // If A IS-A B and B IS-A C, then A IS-A C
+                    if !self.edges().any(|e| {
+                        matches!(e.relation_type, RelationType::IsA)
+                            && e.source() == node.id
+                            && e.target() == grandparent.id
+                    }) {
+                        inferred.push((node.id.clone(), grandparent.id.clone(), RelationType::IsA));
+                    }
+                }
+            }
+        }
+        
+        // Instance inheritance
+        for edge in self.edges() {
+            if matches!(edge.relation_type, RelationType::InstanceOf) {
+                let instance_id = &edge.source;
+                let concept_id = &edge.target;
+                
+                // If A INSTANCE-OF B and B IS-A C, then A INSTANCE-OF C
+                for parent_edge in self.edges() {
+                    if matches!(parent_edge.relation_type, RelationType::IsA)
+                        && parent_edge.source() == *concept_id
+                    {
+                        let parent_concept = &parent_edge.target;
+                        if !self.edges().any(|e| {
+                            matches!(e.relation_type, RelationType::InstanceOf)
+                                && e.source() == *instance_id
+                                && e.target() == *parent_concept
+                        }) {
+                            inferred.push((
+                                instance_id.clone(),
+                                parent_concept.clone(),
+                                RelationType::InstanceOf,
+                            ));
                         }
                     }
                 }
             }
         }
         
-        // Add new inferences to cache
-        for (from, to, rel) in new_inferences {
-            self.inferred
-                .entry(from)
-                .or_default()
-                .push((to, rel));
-        }
-    }
-    
-    /// Get all superclasses of a concept (including inferred)
-    pub fn get_superclasses(&self, concept: &str) -> HashSet<String> {
-        let mut superclasses = HashSet::new();
-        let mut queue = vec![concept.to_string()];
-        
-        while let Some(current) = queue.pop() {
-            // Direct superclasses
-            for target in self.graph.neighbors(&current).unwrap_or_default() {
-                let edges = self.graph.edges_between(&current, &target);
-                for edge in edges {
-                    if edge.relation() == SemanticRelation::SubClassOf && superclasses.insert(target.clone()) {
-                        queue.push(target.clone());
-                    }
-                }
-            }
-            
-            // Inferred superclasses
-            if let Some(inferred) = self.inferred.get(&current) {
-                for (target, rel) in inferred {
-                    if *rel == SemanticRelation::SubClassOf && superclasses.insert(target.clone()) {
-                        queue.push(target.clone());
-                    }
-                }
-            }
-        }
-        
-        superclasses
-    }
-    
-    /// Get all instances of a class (including subclasses)
-    pub fn get_instances(&self, class: &str) -> HashSet<String> {
-        let mut instances = HashSet::new();
-        
-        // Direct instances
-        for node_id in self.graph.node_ids() {
-            if self.has_relation(&node_id, class, SemanticRelation::InstanceOf) {
-                instances.insert(node_id);
-            }
-        }
-        
-        // Instances of subclasses
-        for node_id in self.graph.node_ids() {
-            if self.has_relation(&node_id, class, SemanticRelation::SubClassOf) {
-                let subclass_instances = self.get_instances(&node_id);
-                instances.extend(subclass_instances);
-            }
-        }
-        
-        instances
-    }
-    
-    /// Check consistency (simple version)
-    pub fn check_consistency(&self) -> Vec<String> {
-        let mut violations = Vec::new();
-        
-        // Check for circular subclass relationships
-        for node_id in self.graph.node_ids() {
-            let superclasses = self.get_superclasses(&node_id);
-            if superclasses.contains(&node_id) {
-                violations.push(format!("Circular subclass relationship: {}", node_id));
-            }
-        }
-        
-        // Check disjointness violations
-        for node_id in self.graph.node_ids() {
-            let mut classes = HashSet::new();
-            
-            // Get all classes this is an instance of
-            for target in self.graph.node_ids() {
-                if self.has_relation(&node_id, &target, SemanticRelation::InstanceOf) {
-                    classes.insert(target);
-                }
-            }
-            
-            // Check if any are disjoint
-            for class1 in &classes {
-                for class2 in &classes {
-                    if class1 != class2 && self.has_relation(class1, class2, SemanticRelation::DisjointWith) {
-                        violations.push(format!(
-                            "{} is instance of disjoint classes {} and {}",
-                            node_id, class1, class2
-                        ));
-                    }
-                }
-            }
-        }
-        
-        violations
-    }
-    
-    /// Add a rule
-    pub fn add_rule(&mut self, rule: InferenceRule) {
-        self.rules.push(rule);
-    }
-    
-    /// Get all rules
-    pub fn rules(&self) -> &[InferenceRule] {
-        &self.rules
-    }
-    
-    /// Apply inference rules and return count of new inferences
-    pub fn apply_inference(&mut self) -> usize {
-        // For now, just return 0 as we haven't implemented full inference
-        // In a real implementation, this would apply rules and generate new relations
-        0
-    }
-    
-    /// Get relations for a concept
-    pub fn get_relations(&self, concept_id: &str) -> Vec<(String, SemanticRelation)> {
-        let mut relations = Vec::new();
-        
-        // Get direct relations
-        if let Ok(edges) = self.graph.edges_from(concept_id) {
-            for edge_id in edges {
-                if let Some(edge) = self.graph.get_edge(&edge_id) {
-                    relations.push((edge.target.clone(), edge.relation));
-                }
-            }
-        }
-        
-        relations
-    }
-    
-    /// Get inferred relations for a concept
-    pub fn get_inferred(&self, concept_id: &str) -> Vec<(String, SemanticRelation)> {
-        self.inferred.get(concept_id)
-            .cloned()
-            .unwrap_or_default()
-    }
-    
-    /// Get all concepts
-    pub fn get_all_concepts(&self) -> Vec<&ConceptNode> {
-        self.graph.node_ids()
-            .iter()
-            .filter_map(|id| self.graph.get_node(id))
-            .collect()
-    }
-    
-    /// Get the underlying graph
-    pub fn graph(&self) -> &EventGraph<ConceptNode, ConceptEdge> {
-        &self.graph
-    }
-    
-    /// Get mutable access to the underlying graph
-    pub fn graph_mut(&mut self) -> &mut EventGraph<ConceptNode, ConceptEdge> {
-        &mut self.graph
-    }
-}
-
-impl Default for ConceptGraph {
-    fn default() -> Self {
-        Self::new()
+        inferred
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
-    fn test_concept_graph_creation() {
-        let graph = ConceptGraph::new();
-        assert_eq!(graph.graph().node_count(), 0);
-        assert_eq!(graph.graph().graph_type(), GraphType::ConceptGraph);
+    fn test_concept_node_creation() {
+        let concept = ConceptNode::concept("c1", "Animal");
+        assert!(matches!(concept.node_type, ConceptNodeType::Concept));
+        assert_eq!(concept.name, "Animal");
+        
+        let property = ConceptNode::property("p1", "has_legs")
+            .with_description("Number of legs an animal has");
+        assert!(matches!(property.node_type, ConceptNodeType::Property));
+        assert!(property.description.is_some());
     }
-    
+
     #[test]
-    fn test_class_hierarchy() {
-        let mut graph = ConceptGraph::new();
+    fn test_concept_edge_creation() {
+        let is_a = ConceptEdge::is_a("e1", "Dog", "Animal");
+        assert!(matches!(is_a.relation_type, RelationType::IsA));
+        assert_eq!(is_a.strength, 1.0);
         
-        // Create class hierarchy
-        graph.add_concept("Animal", "Animal", serde_json::json!({})).unwrap();
-        graph.add_concept("Mammal", "Mammal", serde_json::json!({})).unwrap();
-        graph.add_concept("Dog", "Dog", serde_json::json!({})).unwrap();
-        
-        // Add relationships
-        graph.add_relation("Mammal", "Animal", SemanticRelation::SubClassOf).unwrap();
-        graph.add_relation("Dog", "Mammal", SemanticRelation::SubClassOf).unwrap();
-        
-        // Test direct relationships
-        assert!(graph.has_relation("Dog", "Mammal", SemanticRelation::SubClassOf));
-        
-        // Run inference
-        graph.run_inference();
-        
-        // Test inferred relationships
-        assert!(graph.has_relation("Dog", "Animal", SemanticRelation::SubClassOf));
-        
-        // Test superclasses
-        let dog_superclasses = graph.get_superclasses("Dog");
-        assert!(dog_superclasses.contains("Mammal"));
-        assert!(dog_superclasses.contains("Animal"));
+        let weak_relation = ConceptEdge::new("e2", "Cat", "Water", RelationType::RelatedTo)
+            .with_strength(0.3);
+        assert_eq!(weak_relation.strength, 0.3);
     }
-    
+
     #[test]
-    fn test_instance_inference() {
-        let mut graph = ConceptGraph::new();
+    fn test_relation_types() {
+        let edge1 = ConceptEdge::instance_of("e1", "Fido", "Dog");
+        assert!(matches!(edge1.relation_type, RelationType::InstanceOf));
         
-        // Create hierarchy
-        graph.add_concept("Animal", "Animal", serde_json::json!({})).unwrap();
-        graph.add_concept("Dog", "Dog", serde_json::json!({})).unwrap();
-        graph.add_concept("fido", "Fido", serde_json::json!({"type": "Instance"})).unwrap();
-        
-        // Add relationships
-        graph.add_relation("Dog", "Animal", SemanticRelation::SubClassOf).unwrap();
-        graph.add_relation("fido", "Dog", SemanticRelation::InstanceOf).unwrap();
-        
-        // Run inference
-        graph.run_inference();
-        
-        // Check inferred instance relationship
-        assert!(graph.has_relation("fido", "Animal", SemanticRelation::InstanceOf));
-        
-        // Check get_instances
-        let animal_instances = graph.get_instances("Animal");
-        assert!(animal_instances.contains("fido"));
-    }
-    
-    #[test]
-    fn test_consistency_checking() {
-        let mut graph = ConceptGraph::new();
-        
-        // Create disjoint classes
-        graph.add_concept("Plant", "Plant", serde_json::json!({})).unwrap();
-        graph.add_concept("Animal", "Animal", serde_json::json!({})).unwrap();
-        graph.add_concept("weird", "Weird Thing", serde_json::json!({"type": "Instance"})).unwrap();
-        
-        // Make them disjoint
-        graph.add_relation("Plant", "Animal", SemanticRelation::DisjointWith).unwrap();
-        
-        // Add conflicting instance relationships
-        graph.add_relation("weird", "Plant", SemanticRelation::InstanceOf).unwrap();
-        graph.add_relation("weird", "Animal", SemanticRelation::InstanceOf).unwrap();
-        
-        // Check consistency
-        let violations = graph.check_consistency();
-        assert!(!violations.is_empty());
-        assert!(violations[0].contains("disjoint classes"));
+        let edge2 = ConceptEdge::property_of("e2", "has_tail", "Dog");
+        assert!(matches!(edge2.relation_type, RelationType::PropertyOf));
     }
 }
