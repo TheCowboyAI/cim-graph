@@ -73,6 +73,9 @@ pub mod workflow;
 pub mod concept;
 pub mod composed;
 
+#[cfg(test)]
+mod tests;
+
 pub use self::ipld::IpldGraph;
 pub use self::context::ContextGraph;
 pub use self::workflow::WorkflowGraph;

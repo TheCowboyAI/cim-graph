@@ -139,3 +139,5 @@ pub fn serialize_edge<E: Edge + Serialize>(edge: &E) -> Result<SerializedEdge> {
         data,
     })
 }
+#[cfg(test)]
+mod tests;

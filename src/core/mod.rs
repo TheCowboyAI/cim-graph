@@ -7,6 +7,9 @@ pub mod graph;
 pub mod node;
 pub mod petgraph_impl;
 
+#[cfg(test)]
+mod tests;
+
 pub use self::builder::GraphBuilder;
 pub use self::edge::{Edge, GenericEdge};
 pub use self::event::{EventHandler, GraphEvent, MemoryEventHandler};
