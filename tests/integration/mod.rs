@@ -27,13 +27,13 @@ pub mod utils {
         let mut graph = IpldGraph::new();
         
         // Add some CIDs
-        let root = graph.add_cid("QmRoot", "dag-cbor", 1024)?;
-        let child1 = graph.add_cid("QmChild1", "dag-json", 512)?;
-        let child2 = graph.add_cid("QmChild2", "dag-cbor", 768)?;
+        let root = graph.add_content(serde_json::json!({ "cid": "QmRoot", "format": "dag-cbor", "size": 1024 }))?;
+        let child1 = graph.add_content(serde_json::json!({ "cid": "QmChild1", "format": "dag-json", "size": 512 }))?;
+        let child2 = graph.add_content(serde_json::json!({ "cid": "QmChild2", "format": "dag-cbor", "size": 768 }))?;
         
         // Create links
-        graph.add_link(root, child1, "data")?;
-        graph.add_link(root, child2, "metadata")?;
+        graph.add_link(&root, &child1, "data")?;
+        graph.add_link(&root, &child2, "metadata")?;
         
         Ok(graph)
     }

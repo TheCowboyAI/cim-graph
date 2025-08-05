@@ -54,8 +54,8 @@ pub fn node_clustering_coefficient<N: Node, E: Edge>(
     let mut edge_count = 0;
     let neighbor_set: HashSet<_> = neighbors.iter().cloned().collect();
     
-    for i in 0..neighbors.len() {
-        if let Ok(second_neighbors) = graph.neighbors(&neighbors[i]) {
+    for neighbor in &neighbors {
+        if let Ok(second_neighbors) = graph.neighbors(neighbor) {
             for second_neighbor in second_neighbors {
                 if neighbor_set.contains(&second_neighbor) {
                     edge_count += 1;
@@ -164,24 +164,25 @@ fn dfs_component<N: Node, E: Edge>(
 mod tests {
     use super::*;
     use crate::core::{GraphBuilder, GraphType};
-    use crate::core::graph::{BasicNode, BasicEdge};
+    use crate::core::node::GenericNode;
+    use crate::core::edge::GenericEdge;
     
     #[test]
     fn test_degree_centrality() {
         let mut graph = GraphBuilder::new()
-            .graph_type(GraphType::BasicGraph)
-            .build_event::<BasicNode, BasicEdge>()
+            .graph_type(GraphType::Generic)
+            .build_event::<GenericNode<&'static str>, GenericEdge<f64>>()
             .unwrap();
             
         // Create a star graph: A is connected to B, C, D
-        graph.add_node(BasicNode::new("A")).unwrap();
-        graph.add_node(BasicNode::new("B")).unwrap();
-        graph.add_node(BasicNode::new("C")).unwrap();
-        graph.add_node(BasicNode::new("D")).unwrap();
+        graph.add_node(GenericNode::new("A", "data")).unwrap();
+        graph.add_node(GenericNode::new("B", "data")).unwrap();
+        graph.add_node(GenericNode::new("C", "data")).unwrap();
+        graph.add_node(GenericNode::new("D", "data")).unwrap();
         
-        graph.add_edge(BasicEdge::new("A", "B")).unwrap();
-        graph.add_edge(BasicEdge::new("A", "C")).unwrap();
-        graph.add_edge(BasicEdge::new("A", "D")).unwrap();
+        graph.add_edge(GenericEdge::new("A", "B", 1.0)).unwrap();
+        graph.add_edge(GenericEdge::new("A", "C", 1.0)).unwrap();
+        graph.add_edge(GenericEdge::new("A", "D", 1.0)).unwrap();
         
         let centrality = degree_centrality(&graph).unwrap();
         
@@ -195,18 +196,18 @@ mod tests {
     #[test]
     fn test_clustering_coefficient() {
         let mut graph = GraphBuilder::new()
-            .graph_type(GraphType::BasicGraph)  
-            .build_event::<BasicNode, BasicEdge>()
+            .graph_type(GraphType::Generic)
+            .build_event::<GenericNode<&'static str>, GenericEdge<f64>>()
             .unwrap();
             
         // Create a triangle: A -> B, A -> C, B -> C
-        graph.add_node(BasicNode::new("A")).unwrap();
-        graph.add_node(BasicNode::new("B")).unwrap();
-        graph.add_node(BasicNode::new("C")).unwrap();
+        graph.add_node(GenericNode::new("A", "data")).unwrap();
+        graph.add_node(GenericNode::new("B", "data")).unwrap();
+        graph.add_node(GenericNode::new("C", "data")).unwrap();
         
-        graph.add_edge(BasicEdge::new("A", "B")).unwrap();
-        graph.add_edge(BasicEdge::new("A", "C")).unwrap();
-        graph.add_edge(BasicEdge::new("B", "C")).unwrap();
+        graph.add_edge(GenericEdge::new("A", "B", 1.0)).unwrap();
+        graph.add_edge(GenericEdge::new("A", "C", 1.0)).unwrap();
+        graph.add_edge(GenericEdge::new("B", "C", 1.0)).unwrap();
         
         // A's neighbors (B, C) are connected
         let coeff = node_clustering_coefficient(&graph, "A").unwrap();

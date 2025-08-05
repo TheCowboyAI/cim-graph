@@ -52,7 +52,7 @@ pub fn shortest_path<N: Node, E: Edge>(
         }
         
         // Skip if we've found a better path
-        if distances.get(&node).map_or(false, |&d| cost > d) {
+        if distances.get(&node).is_some_and(|&d| cost > d) {
             continue;
         }
         
@@ -164,27 +164,27 @@ impl PartialOrd for State {
 mod tests {
     use super::*;
     use crate::core::{GraphBuilder, GraphType};
-    use crate::core::graph::BasicNode;
-    use crate::core::graph::BasicEdge;
+    use crate::core::node::GenericNode;
+    use crate::core::edge::GenericEdge;
     
     #[test]
     fn test_shortest_path() {
         let mut graph = GraphBuilder::new()
-            .graph_type(GraphType::BasicGraph)
-            .build_event::<BasicNode, BasicEdge>()
+            .graph_type(GraphType::Generic)
+            .build_event::<GenericNode<&'static str>, GenericEdge<f64>>()
             .unwrap();
             
         // Create a simple graph: A -> B -> C
         //                         \-> D -> C
-        graph.add_node(BasicNode::new("A")).unwrap();
-        graph.add_node(BasicNode::new("B")).unwrap();
-        graph.add_node(BasicNode::new("C")).unwrap();
-        graph.add_node(BasicNode::new("D")).unwrap();
+        graph.add_node(GenericNode::new("A", "data")).unwrap();
+        graph.add_node(GenericNode::new("B", "data")).unwrap();
+        graph.add_node(GenericNode::new("C", "data")).unwrap();
+        graph.add_node(GenericNode::new("D", "data")).unwrap();
         
-        graph.add_edge(BasicEdge::new("A", "B")).unwrap();
-        graph.add_edge(BasicEdge::new("B", "C")).unwrap();
-        graph.add_edge(BasicEdge::new("A", "D")).unwrap();
-        graph.add_edge(BasicEdge::new("D", "C")).unwrap();
+        graph.add_edge(GenericEdge::new("A", "B", 1.0)).unwrap();
+        graph.add_edge(GenericEdge::new("B", "C", 1.0)).unwrap();
+        graph.add_edge(GenericEdge::new("A", "D", 1.0)).unwrap();
+        graph.add_edge(GenericEdge::new("D", "C", 1.0)).unwrap();
         
         // Find shortest path
         let path = shortest_path(&graph, "A", "C").unwrap();

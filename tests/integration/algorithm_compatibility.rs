@@ -1,6 +1,8 @@
 //! Tests for graph algorithms across different graph types
 
 use cim_graph::graphs::{ComposedGraph, IpldGraph, ContextGraph, WorkflowGraph, ConceptGraph};
+use cim_graph::graphs::context::RelationshipType;
+use cim_graph::graphs::workflow::{WorkflowNode, StateType};
 use cim_graph::{Graph, Result};
 use cim_graph::algorithms::{bfs, dfs, shortest_path};
 use serde_json::json;
@@ -11,26 +13,33 @@ use std::collections::{HashMap, HashSet};
 fn test_bfs_across_graph_types() -> Result<()> {
     // Test BFS on IPLD graph
     let mut ipld = IpldGraph::new();
-    let root = ipld.add_cid("QmRoot", "dag-cbor", 100)?;
-    let child1 = ipld.add_cid("QmChild1", "dag-cbor", 100)?;
-    let child2 = ipld.add_cid("QmChild2", "dag-cbor", 100)?;
-    let grandchild = ipld.add_cid("QmGrandchild", "dag-cbor", 100)?;
+    let root = ipld.add_content(serde_json::json!({ "cid": "QmRoot", "format": "dag-cbor", "size": 100 }))?;
+    let child1 = ipld.add_content(serde_json::json!({ "cid": "QmChild1", "format": "dag-cbor", "size": 100 }))?;
+    let child2 = ipld.add_content(serde_json::json!({ "cid": "QmChild2", "format": "dag-cbor", "size": 100 }))?;
+    let grandchild = ipld.add_content(serde_json::json!({ "cid": "QmGrandchild", "format": "dag-cbor", "size": 100 }))?;
     
-    ipld.add_link(root, child1, "left")?;
-    ipld.add_link(root, child2, "right")?;
-    ipld.add_link(child1, grandchild, "child")?;
+    ipld.add_link(&root, &child1, "left")?;
+    ipld.add_link(&root, &child2, "right")?;
+    ipld.add_link(&child1, &grandchild, "child")?;
     
     let ipld_bfs = bfs(&ipld, root)?;
     assert_eq!(ipld_bfs.len(), 4);
     assert_eq!(ipld_bfs[0], root); // Root first
     
     // Test BFS on Context graph
-    let mut context = ContextGraph::new("test");
-    let agg1 = context.add_aggregate("Type1", Uuid::new_v4(), json!({}))?;
-    let agg2 = context.add_aggregate("Type2", Uuid::new_v4(), json!({}))?;
-    let entity = context.add_entity("Entity", Uuid::new_v4(), agg1, json!({}))?;
+    let mut context = ContextGraph::new();
+    context.add_bounded_context("test", "Test Context")?;
     
-    context.add_relationship(agg1, agg2, "relates")?;
+    let agg1_id = Uuid::new_v4().to_string();
+    let agg1 = context.add_aggregate(&agg1_id, "Type1", "test")?;
+    
+    let agg2_id = Uuid::new_v4().to_string();
+    let agg2 = context.add_aggregate(&agg2_id, "Type2", "test")?;
+    
+    let entity_id = Uuid::new_v4().to_string();
+    let entity = context.add_entity(&entity_id, "Entity", &agg1)?;
+    
+    context.add_relationship(agg1, agg2, RelationshipType::References)?;
     
     let context_bfs = bfs(&context, agg1)?;
     assert!(context_bfs.contains(&agg1));
@@ -38,13 +47,16 @@ fn test_bfs_across_graph_types() -> Result<()> {
     assert!(context_bfs.contains(&entity));
     
     // Test BFS on Workflow graph
-    let mut workflow = WorkflowGraph::new("test");
-    let start = workflow.add_state("start", json!({}))?;
-    let middle = workflow.add_state("middle", json!({}))?;
-    let end = workflow.add_state("end", json!({}))?;
+    let mut workflow = WorkflowGraph::new();
+    let start_node = WorkflowNode::new("start", "start", StateType::Initial);
+    let start = workflow.add_state(start_node)?;
+    let middle_node = WorkflowNode::new("middle", "middle", StateType::Normal);
+    let middle = workflow.add_state(middle_node)?;
+    let end_node = WorkflowNode::new("end", "end", StateType::Final);
+    let end = workflow.add_state(end_node)?;
     
-    workflow.add_transition(start, middle, "go", json!({}))?;
-    workflow.add_transition(middle, end, "finish", json!({}))?;
+    workflow.add_transition("start", "middle", "go")?;
+    workflow.add_transition("middle", "end", "finish")?;
     
     let workflow_bfs = bfs(&workflow, start)?;
     assert_eq!(workflow_bfs, vec![start, middle, end]);
@@ -55,15 +67,21 @@ fn test_bfs_across_graph_types() -> Result<()> {
 #[test]
 fn test_dfs_across_graph_types() -> Result<()> {
     // Create graphs with cycles (where allowed)
-    let mut context = ContextGraph::new("cyclic");
+    let mut context = ContextGraph::new();
+    context.add_bounded_context("test", "Test Context")?;
     
-    let a = context.add_aggregate("A", Uuid::new_v4(), json!({}))?;
-    let b = context.add_aggregate("B", Uuid::new_v4(), json!({}))?;
-    let c = context.add_aggregate("C", Uuid::new_v4(), json!({}))?;
+    let a_id = Uuid::new_v4().to_string();
+    let a = context.add_aggregate(&a_id, "A", "test")?;
     
-    context.add_relationship(a, b, "to-b")?;
-    context.add_relationship(b, c, "to-c")?;
-    context.add_relationship(c, a, "to-a")?; // Cycle
+    let b_id = Uuid::new_v4().to_string();
+    let b = context.add_aggregate(&b_id, "B", "test")?;
+    
+    let c_id = Uuid::new_v4().to_string();
+    let c = context.add_aggregate(&c_id, "C", "test")?;
+    
+    context.add_relationship(a, b, RelationshipType::References)?;
+    context.add_relationship(b, c, RelationshipType::References)?;
+    context.add_relationship(c, a, RelationshipType::References)?; // Cycle
     
     let dfs_result = dfs(&context, a)?;
     assert_eq!(dfs_result.len(), 3);
@@ -78,18 +96,22 @@ fn test_dfs_across_graph_types() -> Result<()> {
 #[test]
 fn test_shortest_path_with_weighted_edges() -> Result<()> {
     // Create workflow with weighted transitions
-    let mut workflow = WorkflowGraph::new("weighted");
+    let mut workflow = WorkflowGraph::new();
     
-    let s1 = workflow.add_state("s1", json!({}))?;
-    let s2 = workflow.add_state("s2", json!({}))?;
-    let s3 = workflow.add_state("s3", json!({}))?;
-    let s4 = workflow.add_state("s4", json!({}))?;
+    let s1_node = WorkflowNode::new("s1", "s1", StateType::Initial);
+    let s1 = workflow.add_state(s1_node)?;
+    let s2_node = WorkflowNode::new("s2", "s2", StateType::Normal);
+    let s2 = workflow.add_state(s2_node)?;
+    let s3_node = WorkflowNode::new("s3", "s3", StateType::Normal);
+    let s3 = workflow.add_state(s3_node)?;
+    let s4_node = WorkflowNode::new("s4", "s4", StateType::Final);
+    let s4 = workflow.add_state(s4_node)?;
     
     // Create weighted graph
-    workflow.add_transition(s1, s2, "fast", json!({ "cost": 1 }))?;
-    workflow.add_transition(s1, s3, "slow", json!({ "cost": 5 }))?;
-    workflow.add_transition(s2, s4, "medium", json!({ "cost": 2 }))?;
-    workflow.add_transition(s3, s4, "direct", json!({ "cost": 1 }))?;
+    workflow.add_transition("s1", "s2", "fast")?;
+    workflow.add_transition("s1", "s3", "slow")?;
+    workflow.add_transition("s2", "s4", "medium")?;
+    workflow.add_transition("s3", "s4", "direct")?;
     
     // Find shortest path
     let path_result = shortest_path(&workflow, s1, s4)?;
@@ -151,25 +173,31 @@ fn test_centrality_on_concept_graph() -> Result<()> {
 #[test]
 fn test_connected_components() -> Result<()> {
     // Create workflow with multiple components
-    let mut workflow = WorkflowGraph::new("components-test");
+    let mut workflow = WorkflowGraph::new();
     
     // First component: s1 -> s2 -> s3
-    let s1 = workflow.add_state("s1", json!({}))?;
-    let s2 = workflow.add_state("s2", json!({}))?;
-    let s3 = workflow.add_state("s3", json!({}))?;
+    let s1_node = WorkflowNode::new("s1", "s1", StateType::Initial);
+    let s1 = workflow.add_state(s1_node)?;
+    let s2_node = WorkflowNode::new("s2", "s2", StateType::Normal);
+    let s2 = workflow.add_state(s2_node)?;
+    let s3_node = WorkflowNode::new("s3", "s3", StateType::Normal);
+    let s3 = workflow.add_state(s3_node)?;
     
-    workflow.add_transition(s1, s2, "1-2", json!({}))?;
-    workflow.add_transition(s2, s3, "2-3", json!({}))?;
+    workflow.add_transition("s1", "s2", "1-2")?;
+    workflow.add_transition("s2", "s3", "2-3")?;
     
     // Second component: s4 <-> s5
-    let s4 = workflow.add_state("s4", json!({}))?;
-    let s5 = workflow.add_state("s5", json!({}))?;
+    let s4_node = WorkflowNode::new("s4", "s4", StateType::Normal);
+    let s4 = workflow.add_state(s4_node)?;
+    let s5_node = WorkflowNode::new("s5", "s5", StateType::Normal);
+    let s5 = workflow.add_state(s5_node)?;
     
-    workflow.add_transition(s4, s5, "4-5", json!({}))?;
-    workflow.add_transition(s5, s4, "5-4", json!({}))?;
+    workflow.add_transition("s4", "s5", "4-5")?;
+    workflow.add_transition("s5", "s4", "5-4")?;
     
     // Isolated node
-    let s6 = workflow.add_state("s6", json!({}))?;
+    let s6_node = WorkflowNode::new("s6", "s6", StateType::Normal);
+    let s6 = workflow.add_state(s6_node)?;
     
     // Use BFS to find connected components
     let mut visited = HashSet::new();
@@ -200,22 +228,33 @@ fn test_connected_components() -> Result<()> {
 #[test]
 fn test_shortest_path_across_composed_graphs() -> Result<()> {
     // Create multiple connected graphs
-    let mut g1 = ContextGraph::new("g1");
-    let mut g2 = ContextGraph::new("g2");
+    let mut g1 = ContextGraph::new();
+    let mut g2 = ContextGraph::new();
+    
+    g1.add_bounded_context("test1", "Test Context 1")?;
+    g2.add_bounded_context("test2", "Test Context 2")?;
     
     // Graph 1 nodes
-    let a = g1.add_aggregate("Node", Uuid::new_v4(), json!({ "name": "A" }))?;
-    let b = g1.add_aggregate("Node", Uuid::new_v4(), json!({ "name": "B" }))?;
-    let c = g1.add_aggregate("Node", Uuid::new_v4(), json!({ "name": "C" }))?;
+    let a_id = Uuid::new_v4().to_string();
+    let a = g1.add_aggregate(&a_id, "Node_A", "test1")?;
     
-    g1.add_relationship(a, b, "connects")?;
-    g1.add_relationship(b, c, "connects")?;
+    let b_id = Uuid::new_v4().to_string();
+    let b = g1.add_aggregate(&b_id, "Node_B", "test1")?;
+    
+    let c_id = Uuid::new_v4().to_string();
+    let c = g1.add_aggregate(&c_id, "Node_C", "test1")?;
+    
+    g1.add_relationship(a, b, RelationshipType::References)?;
+    g1.add_relationship(b, c, RelationshipType::References)?;
     
     // Graph 2 nodes  
-    let d = g2.add_aggregate("Node", Uuid::new_v4(), json!({ "name": "D" }))?;
-    let e = g2.add_aggregate("Node", Uuid::new_v4(), json!({ "name": "E" }))?;
+    let d_id = Uuid::new_v4().to_string();
+    let d = g2.add_aggregate(&d_id, "Node_D", "test2")?;
     
-    g2.add_relationship(d, e, "connects")?;
+    let e_id = Uuid::new_v4().to_string();
+    let e = g2.add_aggregate(&e_id, "Node_E", "test2")?;
+    
+    g2.add_relationship(d, e, RelationshipType::References)?;
     
     // Note: In practice, composed graphs don't have cross-graph edges,
     // but we can still run algorithms on individual sub-graphs
@@ -255,10 +294,10 @@ fn test_cycle_detection_algorithm() -> Result<()> {
     
     // Test on IPLD (DAG - no cycles allowed)
     let mut ipld = IpldGraph::new();
-    let c1 = ipld.add_cid("Qm1", "dag-cbor", 100)?;
-    let c2 = ipld.add_cid("Qm2", "dag-cbor", 100)?;
+    let c1 = ipld.add_content(serde_json::json!({ "cid": "Qm1", "format": "dag-cbor", "size": 100 }))?;
+    let c2 = ipld.add_content(serde_json::json!({ "cid": "Qm2", "format": "dag-cbor", "size": 100 }))?;
     
-    ipld.add_link(c1, c2, "link")?;
+    ipld.add_link(&c1, &c2, "link")?;
     
     // IPLD enforces DAG property, so no cycles possible
     assert!(!has_cycle(&ipld)?);
@@ -301,36 +340,39 @@ fn test_graph_metrics_calculation() -> Result<()> {
 #[test]
 fn test_subgraph_extraction() -> Result<()> {
     // Create large graph and extract subgraphs
-    let mut context = ContextGraph::new("large");
+    let mut context = ContextGraph::new();
     
     // Create clusters
     let mut cluster1_nodes = Vec::new();
     let mut cluster2_nodes = Vec::new();
     
+    // Add bounded context
+    context.add_bounded_context("test", "Test Context")?;
+    
     // Cluster 1
-    let c1_root = context.add_aggregate("Cluster1", Uuid::new_v4(), json!({}))?;
-    cluster1_nodes.push(c1_root);
+    let c1_root_id = Uuid::new_v4().to_string();
+    let c1_root = context.add_aggregate(&c1_root_id, "Cluster1", "test")?;
+    cluster1_nodes.push(c1_root.clone());
     
     for i in 0..3 {
-        let node = context.add_entity("C1Node", Uuid::new_v4(), c1_root, json!({
-            "index": i
-        }))?;
+        let node_id = Uuid::new_v4().to_string();
+        let node = context.add_entity(&node_id, &format!("C1Node_{}", i), &c1_root)?;
         cluster1_nodes.push(node);
     }
     
     // Cluster 2
-    let c2_root = context.add_aggregate("Cluster2", Uuid::new_v4(), json!({}))?;
-    cluster2_nodes.push(c2_root);
+    let c2_root_id = Uuid::new_v4().to_string();
+    let c2_root = context.add_aggregate(&c2_root_id, "Cluster2", "test")?;
+    cluster2_nodes.push(c2_root.clone());
     
     for i in 0..3 {
-        let node = context.add_entity("C2Node", Uuid::new_v4(), c2_root, json!({
-            "index": i
-        }))?;
+        let node_id = Uuid::new_v4().to_string();
+        let node = context.add_entity(&node_id, &format!("C2Node_{}", i), &c2_root)?;
         cluster2_nodes.push(node);
     }
     
     // Weak link between clusters
-    context.add_relationship(c1_root, c2_root, "related")?;
+    context.add_relationship(&c1_root, &c2_root, RelationshipType::References)?;
     
     // Extract subgraph around cluster 1
     let subgraph_nodes = bfs(&context, c1_root)?;

@@ -16,6 +16,17 @@ pub struct GraphBuilder<N: Node, E: Edge> {
     _phantom: PhantomData<(N, E)>,
 }
 
+impl<N: Node, E: Edge> std::fmt::Debug for GraphBuilder<N, E> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GraphBuilder")
+            .field("graph_type", &self.graph_type)
+            .field("name", &self.name)
+            .field("description", &self.description)
+            .field("event_handlers_count", &self.event_handlers.len())
+            .finish()
+    }
+}
+
 impl<N: Node, E: Edge> GraphBuilder<N, E> {
     /// Create a new graph builder
     pub fn new() -> Self {

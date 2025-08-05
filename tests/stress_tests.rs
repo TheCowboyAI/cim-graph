@@ -296,8 +296,9 @@ mod concept_stress {
         let mut graph = ConceptGraph::new();
         
         // Create concept hierarchy
-        let root = ConceptNode::new("Thing", "Thing", "Root of all concepts");
-        graph.add_concept(root).unwrap();
+        graph.add_concept("Thing", "Thing", serde_json::json!({
+            "description": "Root of all concepts"
+        })).unwrap();
         
         // Create layers of concepts
         let mut current_layer = vec!["Thing".to_string()];
@@ -313,12 +314,13 @@ mod concept_stress {
                     }
                     
                     let child_id = format!("concept_{}", total);
-                    let child = ConceptNode::new(
+                    graph.add_concept(
                         &child_id,
                         &child_id,
-                        &format!("Subconcept of {}", parent),
-                    );
-                    graph.add_concept(child).unwrap();
+                        serde_json::json!({
+                            "description": format!("Subconcept of {}", parent)
+                        })
+                    ).unwrap();
                     graph.add_relation(parent, &child_id, SemanticRelation::IsA).unwrap();
                     
                     next_layer.push(child_id);
@@ -476,17 +478,13 @@ mod algorithm_stress {
 }
 
 #[test]
-#[ignore]
+#[ignore] // Run with --ignored flag
 fn run_all_stress_tests() {
     println!("\n=== Running All Stress Tests ===");
     println!("This will take several minutes...\n");
     
-    workflow_stress::test_large_workflow_graph();
-    ipld_stress::test_large_ipld_graph();
-    context_stress::test_large_domain_model();
-    concept_stress::test_large_knowledge_graph();
-    memory_stress::test_memory_limits();
-    algorithm_stress::test_algorithm_scalability();
+    // Note: Individual stress tests are in their own modules
+    // Run with: cargo test --ignored
     
     println!("\n=== All Stress Tests Completed ===");
 }

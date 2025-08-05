@@ -21,6 +21,7 @@ pub struct NodeIndex<N: Node> {
     by_type: HashMap<String, Vec<Arc<N>>>,
     
     /// Spatial index for nodes with position data
+    #[allow(dead_code)]
     spatial_index: Option<SpatialIndex>,
 }
 
@@ -41,7 +42,7 @@ impl<N: Node> NodeIndex<N> {
         // Index by type if the node has a type field
         // This is a simplified example - real implementation would use traits
         self.by_type.entry("default".to_string())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(node);
     }
     
@@ -105,11 +106,11 @@ impl<E: Edge> EdgeIndex<E> {
         self.by_id.insert(id, edge.clone());
         
         self.by_source.entry(source)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(edge.clone());
             
         self.by_target.entry(target)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(edge);
     }
     
@@ -223,22 +224,31 @@ pub mod parallel {
     where
         F: Fn(&str) -> Vec<String> + Sync,
     {
-        let mut visited = std::collections::HashSet::new();
+        use std::sync::Mutex;
+        let visited = Mutex::new(std::collections::HashSet::new());
         let mut current_level = start_nodes;
         let mut result = Vec::new();
         
         while !current_level.is_empty() {
-            // Process current level in parallel
-            let next_level: Vec<String> = current_level
-                .par_iter()
-                .flat_map(|node| {
-                    if visited.insert(node.clone()) {
-                        result.push(node.clone());
-                        get_neighbors(node)
+            // Filter out already visited nodes and collect new ones
+            let (to_process, new_results): (Vec<_>, Vec<_>) = current_level
+                .into_iter()
+                .filter_map(|node| {
+                    let mut visited_guard = visited.lock().unwrap();
+                    if visited_guard.insert(node.clone()) {
+                        Some((node.clone(), node))
                     } else {
-                        vec![]
+                        None
                     }
                 })
+                .unzip();
+            
+            result.extend(new_results);
+            
+            // Process current level in parallel to get neighbors
+            let next_level: Vec<String> = to_process
+                .par_iter()
+                .flat_map(|node| get_neighbors(node))
                 .collect();
                 
             current_level = next_level;
@@ -285,6 +295,7 @@ pub mod monitoring {
     
     /// Simple performance counter
     pub struct PerfCounter {
+        #[allow(dead_code)]
         name: String,
         count: Mutex<u64>,
         total_time: Mutex<Duration>,

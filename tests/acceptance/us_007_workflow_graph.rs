@@ -38,8 +38,8 @@ fn test_ac_007_2_define_transitions() {
     let pause_transition = WorkflowEdge::new("running", "paused")
         .with_trigger("pause");
         
-    workflow.add_transition(start_transition).unwrap();
-    workflow.add_transition(pause_transition).unwrap();
+    workflow.add_transition_edge(start_transition).unwrap();
+    workflow.add_transition_edge(pause_transition).unwrap();
     
     // Then: transitions are created
     assert_eq!(workflow.graph().edge_count(), 2);
@@ -57,13 +57,13 @@ fn test_ac_007_3_process_events() {
     workflow.add_state(WorkflowNode::new("completed", "Completed", StateType::Final)).unwrap();
     
     // Setup transitions
-    workflow.add_transition(
+    workflow.add_transition_edge(
         WorkflowEdge::new("new", "approved").with_trigger("approve")
     ).unwrap();
-    workflow.add_transition(
+    workflow.add_transition_edge(
         WorkflowEdge::new("new", "rejected").with_trigger("reject")
     ).unwrap();
-    workflow.add_transition(
+    workflow.add_transition_edge(
         WorkflowEdge::new("approved", "completed").with_trigger("complete")
     ).unwrap();
     
@@ -95,12 +95,12 @@ fn test_ac_007_4_parallel_states() {
     workflow.add_state(WorkflowNode::new("end", "End", StateType::Final)).unwrap();
     
     // Transitions
-    workflow.add_transition(WorkflowEdge::new("start", "fork").with_trigger("begin")).unwrap();
-    workflow.add_transition(WorkflowEdge::new("fork", "task1")).unwrap();
-    workflow.add_transition(WorkflowEdge::new("fork", "task2")).unwrap();
-    workflow.add_transition(WorkflowEdge::new("task1", "join").with_trigger("done1")).unwrap();
-    workflow.add_transition(WorkflowEdge::new("task2", "join").with_trigger("done2")).unwrap();
-    workflow.add_transition(WorkflowEdge::new("join", "end")).unwrap();
+    workflow.add_transition_edge(WorkflowEdge::new("start", "fork").with_trigger("begin")).unwrap();
+    workflow.add_transition_edge(WorkflowEdge::new("fork", "task1")).unwrap();
+    workflow.add_transition_edge(WorkflowEdge::new("fork", "task2")).unwrap();
+    workflow.add_transition_edge(WorkflowEdge::new("task1", "join").with_trigger("done1")).unwrap();
+    workflow.add_transition_edge(WorkflowEdge::new("task2", "join").with_trigger("done2")).unwrap();
+    workflow.add_transition_edge(WorkflowEdge::new("join", "end")).unwrap();
     
     // When: process through fork
     workflow.process_event("begin").unwrap();

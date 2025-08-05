@@ -309,7 +309,7 @@ impl GraphGenerator<IpldGraph> for IpldGraphGenerator {
             let to = block_ids.choose(&mut rng).unwrap();
             
             if from != to {
-                if graph.add_link(from, to, &format!("link_{}", edge_count)).is_ok() {
+                if graph.add_link(&from, &to, &format!("link_{}", edge_count)).is_ok() {
                     edge_count += 1;
                 }
             }

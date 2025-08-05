@@ -182,6 +182,7 @@ pub struct ComposedGraph {
 /// Constraint for cross-type relationships
 #[derive(Debug, Clone)]
 struct TypeConstraint {
+    #[allow(dead_code)]
     name: String,
     source_type: String,
     target_type: String,
@@ -430,16 +431,14 @@ impl ComposedGraph {
         let mut connections = Vec::new();
         
         for edge_id in self.graph.edge_ids() {
-            if let Some(edge) = self.graph.get_edge(&edge_id) {
-                if let ComposedEdge::CrossType { source, target, source_type, target_type, relation, .. } = edge {
-                    connections.push(CrossLayerConnection {
-                        source_layer: source_type.clone(),
-                        source_node: source.clone(),
-                        target_layer: target_type.clone(),
-                        target_node: target.clone(),
-                        connection_type: relation.clone(),
-                    });
-                }
+            if let Some(ComposedEdge::CrossType { source, target, source_type, target_type, relation, .. }) = self.graph.get_edge(&edge_id) {
+                connections.push(CrossLayerConnection {
+                    source_layer: source_type.clone(),
+                    source_node: source.clone(),
+                    target_layer: target_type.clone(),
+                    target_node: target.clone(),
+                    connection_type: relation.clone(),
+                });
             }
         }
         

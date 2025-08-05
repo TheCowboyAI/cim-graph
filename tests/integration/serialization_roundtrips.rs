@@ -1,6 +1,9 @@
 //! Tests for serialization and deserialization round-trips
 
 use cim_graph::graphs::{ComposedGraph, IpldGraph, ContextGraph, WorkflowGraph, ConceptGraph};
+use cim_graph::graphs::context::RelationshipType;
+use cim_graph::graphs::workflow::{WorkflowNode, StateType};
+use cim_graph::graphs::concept::SemanticRelation;
 use cim_graph::{Graph, Result};
 use serde_json::{json, Value};
 use uuid::Uuid;
@@ -12,16 +15,16 @@ fn test_ipld_graph_roundtrip() -> Result<()> {
     let mut original = IpldGraph::new();
     
     // Add various CID types
-    let root = original.add_cid("QmRoot", "dag-cbor", 4096)?;
-    let json_node = original.add_cid("QmJson", "dag-json", 2048)?;
-    let raw_node = original.add_cid("QmRaw", "raw", 1024)?;
-    let pb_node = original.add_cid("QmPb", "dag-pb", 512)?;
+    let root = original.add_content(serde_json::json!({ "cid": "QmRoot", "format": "dag-cbor", "size": 4096 }))?;
+    let json_node = original.add_content(serde_json::json!({ "cid": "QmJson", "format": "dag-json", "size": 2048 }))?;
+    let raw_node = original.add_content(serde_json::json!({ "cid": "QmRaw", "format": "raw", "size": 1024 }))?;
+    let pb_node = original.add_content(serde_json::json!({ "cid": "QmPb", "format": "dag-pb", "size": 512 }))?;
     
     // Create complex link structure
-    original.add_link(root, json_node, "data")?;
-    original.add_link(root, raw_node, "binary")?;
-    original.add_link(json_node, pb_node, "metadata")?;
-    original.add_link(raw_node, pb_node, "related")?;
+    original.add_link(&root, &json_node, "data")?;
+    original.add_link(&root, &raw_node, "binary")?;
+    original.add_link(&json_node, &pb_node, "metadata")?;
+    original.add_link(&raw_node, &pb_node, "related")?;
     
     // Serialize to JSON
     let serialized = serde_json::to_string_pretty(&original)?;
@@ -55,57 +58,24 @@ fn test_ipld_graph_roundtrip() -> Result<()> {
 #[test]
 fn test_context_graph_roundtrip() -> Result<()> {
     // Create rich domain model
-    let mut original = ContextGraph::new("e-commerce");
+    let mut original = ContextGraph::new();
+    
+    // Add bounded context
+    original.add_bounded_context("crm", "Customer Relationship Management")?;
     
     // Add aggregates with complex data
-    let customer = original.add_aggregate("Customer", Uuid::new_v4(), json!({
-        "name": "John Doe",
-        "email": "john@example.com",
-        "preferences": {
-            "newsletter": true,
-            "notifications": {
-                "email": true,
-                "sms": false
-            }
-        },
-        "tags": ["vip", "early-adopter"],
-        "metadata": {
-            "created_at": "2024-01-15T10:00:00Z",
-            "last_login": "2024-01-15T09:00:00Z"
-        }
-    }))?;
+    let customer_id = Uuid::new_v4().to_string();
+    let customer = original.add_aggregate(&customer_id, "Customer_JohnDoe", "crm")?;
     
-    let address = original.add_entity("Address", Uuid::new_v4(), customer, json!({
-        "type": "shipping",
-        "street": "123 Main St",
-        "city": "Seattle",
-        "state": "WA",
-        "zip": "98101",
-        "country": "USA",
-        "coordinates": {
-            "lat": 47.6062,
-            "lng": -122.3321
-        }
-    }))?;
+    let address_id = Uuid::new_v4().to_string();
+    let address = original.add_entity(&address_id, "Address_Shipping", &customer)?;
     
-    let order = original.add_aggregate("Order", Uuid::new_v4(), json!({
-        "order_number": "ORD-2024-0001",
-        "status": "processing",
-        "total": 299.99,
-        "currency": "USD",
-        "items": [
-            {
-                "sku": "WIDGET-001",
-                "name": "Super Widget",
-                "quantity": 2,
-                "price": 149.99
-            }
-        ]
-    }))?;
+    let order_id = Uuid::new_v4().to_string();
+    let order = original.add_aggregate(&order_id, "Order_2024_0001", "crm")?;
     
     // Add relationships
-    original.add_relationship(customer, order, "placed")?;
-    original.add_relationship(order, address, "ships-to")?;
+    original.add_relationship(customer, order, RelationshipType::References)?;
+    original.add_relationship(order, address, RelationshipType::References)?;
     
     // Serialize
     let serialized = serde_json::to_string_pretty(&original)?;
@@ -139,70 +109,39 @@ fn test_context_graph_roundtrip() -> Result<()> {
 #[test]
 fn test_workflow_graph_roundtrip() -> Result<()> {
     // Create complex state machine
-    let mut original = WorkflowGraph::new("order-fulfillment");
+    let mut original = WorkflowGraph::new();
     
     // Add states with metadata
-    let created = original.add_state("created", json!({
-        "description": "Order created",
-        "sla_hours": 1,
-        "notifications": ["customer", "warehouse"]
-    }))?;
+    let created_node = WorkflowNode::new("created", "created", StateType::Initial);
+    let created = original.add_state(created_node)?;
     
-    let validated = original.add_state("validated", json!({
-        "description": "Order validated",
-        "validations": ["inventory", "payment", "shipping"]
-    }))?;
+    let validated_node = WorkflowNode::new("validated", "validated", StateType::Normal);
+    let validated = original.add_state(validated_node)?;
     
-    let picked = original.add_state("picked", json!({
-        "description": "Items picked from warehouse",
-        "location": "warehouse-A"
-    }))?;
+    let picked_node = WorkflowNode::new("picked", "picked", StateType::Normal);
+    let picked = original.add_state(picked_node)?;
     
-    let packed = original.add_state("packed", json!({
-        "description": "Order packed",
-        "packaging": "standard"
-    }))?;
+    let packed_node = WorkflowNode::new("packed", "packed", StateType::Normal);
+    let packed = original.add_state(packed_node)?;
     
-    let shipped = original.add_state("shipped", json!({
-        "description": "Order shipped",
-        "carriers": ["UPS", "FedEx", "USPS"]
-    }))?;
+    let shipped_node = WorkflowNode::new("shipped", "shipped", StateType::Final);
+    let shipped = original.add_state(shipped_node)?;
     
     // Add complex transitions
-    original.add_transition(created, validated, "validate", json!({
-        "automatic": true,
-        "timeout_minutes": 30,
-        "retry_policy": {
-            "max_attempts": 3,
-            "backoff": "exponential"
-        }
-    }))?;
+    original.add_transition("created", "validated", "validate")?;
     
-    original.add_transition(validated, picked, "pick", json!({
-        "requires_role": "warehouse_staff",
-        "priority": "normal"
-    }))?;
+    original.add_transition("validated", "picked", "pick")?;
     
-    original.add_transition(picked, packed, "pack", json!({
-        "scan_required": true,
-        "quality_check": true
-    }))?;
+    original.add_transition("picked", "packed", "pack")?;
     
-    original.add_transition(packed, shipped, "ship", json!({
-        "label_required": true,
-        "tracking_required": true
-    }))?;
+    original.add_transition("packed", "shipped", "ship")?;
     
     // Add error transitions
-    let error = original.add_state("error", json!({
-        "description": "Error state",
-        "alert": true
-    }))?;
+    let error_node = WorkflowNode::new("error", "error", StateType::Normal);
+    let error = original.add_state(error_node)?;
     
-    for state in [validated, picked, packed] {
-        original.add_transition(state, error, "error", json!({
-            "capture_context": true
-        }))?;
+    for state_name in ["validated", "picked", "packed"] {
+        original.add_transition(state_name, "error", "error")?;
     }
     
     // Serialize
@@ -237,49 +176,49 @@ fn test_concept_graph_roundtrip() -> Result<()> {
     let mut original = ConceptGraph::new();
     
     // Add concepts with features
-    let animal = original.add_concept("Animal", vec![
-        ("living", 1.0),
-        ("mobile", 0.9),
-        ("organic", 1.0),
-        ("sentient", 0.8)
-    ])?;
+    let animal = original.add_concept("Animal", "Animal", serde_json::json!({
+        "living": 1.0,
+        "mobile": 0.9,
+        "organic": 1.0,
+        "sentient": 0.8
+    }))?;
     
-    let mammal = original.add_concept("Mammal", vec![
-        ("living", 1.0),
-        ("mobile", 0.95),
-        ("organic", 1.0),
-        ("sentient", 0.9),
-        ("warm-blooded", 1.0),
-        ("hair", 0.9)
-    ])?;
+    let mammal = original.add_concept("Mammal", "Mammal", serde_json::json!({
+        "living": 1.0,
+        "mobile": 0.95,
+        "organic": 1.0,
+        "sentient": 0.9,
+        "warm-blooded": 1.0,
+        "hair": 0.9
+    }))?;
     
-    let dog = original.add_concept("Dog", vec![
-        ("living", 1.0),
-        ("mobile", 1.0),
-        ("organic", 1.0),
-        ("sentient", 0.95),
-        ("warm-blooded", 1.0),
-        ("hair", 1.0),
-        ("barks", 0.9),
-        ("loyal", 0.8)
-    ])?;
+    let dog = original.add_concept("Dog", "Dog", serde_json::json!({
+        "living": 1.0,
+        "mobile": 1.0,
+        "organic": 1.0,
+        "sentient": 0.95,
+        "warm-blooded": 1.0,
+        "hair": 1.0,
+        "barks": 0.9,
+        "loyal": 0.8
+    }))?;
     
-    let cat = original.add_concept("Cat", vec![
-        ("living", 1.0),
-        ("mobile", 1.0),
-        ("organic", 1.0),
-        ("sentient", 0.95),
-        ("warm-blooded", 1.0),
-        ("hair", 1.0),
-        ("meows", 0.9),
-        ("independent", 0.9)
-    ])?;
+    let cat = original.add_concept("Cat", "Cat", serde_json::json!({
+        "living": 1.0,
+        "mobile": 1.0,
+        "organic": 1.0,
+        "sentient": 0.95,
+        "warm-blooded": 1.0,
+        "hair": 1.0,
+        "meows": 0.9,
+        "independent": 0.9
+    }))?;
     
     // Add semantic relations
-    original.add_relation(mammal, animal, "is-a", 1.0)?;
-    original.add_relation(dog, mammal, "is-a", 1.0)?;
-    original.add_relation(cat, mammal, "is-a", 1.0)?;
-    original.add_relation(dog, cat, "similar-to", 0.7)?;
+    original.add_relation("Mammal", "Animal", SemanticRelation::SubClassOf)?;
+    original.add_relation("Dog", "Mammal", SemanticRelation::SubClassOf)?;
+    original.add_relation("Cat", "Mammal", SemanticRelation::SubClassOf)?;
+    original.add_relation("Dog", "Cat", SemanticRelation::Custom)?;
     
     // Serialize
     let serialized = serde_json::to_string_pretty(&original)?;
@@ -320,26 +259,28 @@ fn test_concept_graph_roundtrip() -> Result<()> {
 fn test_composed_graph_roundtrip() -> Result<()> {
     // Create complex composed graph
     let mut ipld = IpldGraph::new();
-    let cid1 = ipld.add_cid("QmData1", "dag-cbor", 1024)?;
-    let cid2 = ipld.add_cid("QmData2", "dag-cbor", 2048)?;
-    ipld.add_link(cid1, cid2, "next")?;
+    let cid1 = ipld.add_content(serde_json::json!({ "cid": "QmData1", "format": "dag-cbor", "size": 1024 }))?;
+    let cid2 = ipld.add_content(serde_json::json!({ "cid": "QmData2", "format": "dag-cbor", "size": 2048 }))?;
+    ipld.add_link(&cid1, &cid2, "next")?;
     
-    let mut context = ContextGraph::new("business");
-    let customer = context.add_aggregate("Customer", Uuid::new_v4(), json!({
-        "name": "Acme Corp",
-        "tier": "enterprise"
-    }))?;
+    let mut context = ContextGraph::new();
+    context.add_bounded_context("sales", "Sales Context")?;
     
-    let mut workflow = WorkflowGraph::new("approval");
-    let pending = workflow.add_state("pending", json!({}))?;
-    let approved = workflow.add_state("approved", json!({}))?;
-    workflow.add_transition(pending, approved, "approve", json!({}))?;
+    let customer_id = Uuid::new_v4().to_string();
+    let customer = context.add_aggregate(&customer_id, "Customer_Acme", "sales")?;
+    
+    let mut workflow = WorkflowGraph::new();
+    let pending_node = WorkflowNode::new("pending", "pending", StateType::Initial);
+    let pending = workflow.add_state(pending_node)?;
+    let approved_node = WorkflowNode::new("approved", "approved", StateType::Final);
+    let approved = workflow.add_state(approved_node)?;
+    workflow.add_transition("pending", "approved", "approve")?;
     
     let mut concepts = ConceptGraph::new();
-    let business = concepts.add_concept("Business", vec![
-        ("commercial", 1.0),
-        ("profitable", 0.8)
-    ])?;
+    let business = concepts.add_concept("Business", "Business", serde_json::json!({
+        "commercial": 1.0,
+        "profitable": 0.8
+    }))?;
     
     // Create composed graph
     let original = ComposedGraph::builder()
@@ -373,7 +314,7 @@ fn test_composed_graph_roundtrip() -> Result<()> {
 
 #[test]
 fn test_special_value_serialization() -> Result<()> {
-    let mut context = ContextGraph::new("special-values");
+    let mut context = ContextGraph::new();
     
     // Test various JSON value types
     let special_data = json!({
@@ -393,7 +334,10 @@ fn test_special_value_serialization() -> Result<()> {
         "mixed_array": [1, "two", true, null, {"five": 5}]
     });
     
-    let entity = context.add_aggregate("SpecialEntity", Uuid::new_v4(), special_data.clone())?;
+    context.add_bounded_context("test", "Test Context")?;
+    
+    let entity_id = Uuid::new_v4().to_string();
+    let entity = context.add_aggregate(&entity_id, "SpecialEntity", "test")?;
     
     // Serialize and deserialize
     let serialized = serde_json::to_string(&context)?;
@@ -415,27 +359,28 @@ fn test_special_value_serialization() -> Result<()> {
 #[test]
 fn test_large_graph_serialization() -> Result<()> {
     // Create large graph to test performance
-    let mut workflow = WorkflowGraph::new("large-workflow");
+    let mut workflow = WorkflowGraph::new();
     
     // Create 100 states
-    let mut states = Vec::new();
+    let mut state_names = Vec::new();
     for i in 0..100 {
-        let state = workflow.add_state(&format!("state-{}", i), json!({
-            "index": i,
-            "data": "x".repeat(100) // Some bulk data
-        }))?;
-        states.push(state);
+        let state_name = format!("state-{}", i);
+        let state_type = if i == 0 { StateType::Initial } else if i == 99 { StateType::Final } else { StateType::Normal };
+        let state_node = WorkflowNode::new(&state_name, &state_name, state_type);
+        workflow.add_state(state_node)?;
+        state_names.push(state_name);
     }
     
     // Create transitions (each state to next 3)
     for i in 0..97 {
         for j in 1..=3 {
-            workflow.add_transition(
-                states[i],
-                states[i + j],
-                &format!("transition-{}-{}", i, i + j),
-                json!({ "weight": j })
-            )?;
+            if i + j < 100 {
+                workflow.add_transition(
+                    &state_names[i],
+                    &state_names[i + j],
+                    &format!("transition-{}-{}", i, i + j)
+                )?;
+            }
         }
     }
     
@@ -458,14 +403,16 @@ fn test_large_graph_serialization() -> Result<()> {
 
 #[test]
 fn test_uuid_serialization_formats() -> Result<()> {
-    let mut context = ContextGraph::new("uuid-test");
+    let mut context = ContextGraph::new();
     
     // Test different UUID formats
     let uuid_hyphenated = Uuid::from_str("550e8400-e29b-41d4-a716-446655440000")?;
     let uuid_simple = Uuid::from_str("550e8400e29b41d4a716446655440000")?;
     
-    context.add_aggregate("Entity1", uuid_hyphenated, json!({}))?;
-    context.add_aggregate("Entity2", uuid_simple, json!({}))?;
+    context.add_bounded_context("test", "Test Context")?;
+    
+    context.add_aggregate(&uuid_hyphenated.to_string(), "Entity1", "test")?;
+    context.add_aggregate(&uuid_simple.to_string(), "Entity2", "test")?;
     
     // Serialize
     let serialized = serde_json::to_string(&context)?;

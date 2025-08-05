@@ -1,6 +1,9 @@
 //! Tests for real-world workflow scenarios
 
 use cim_graph::graphs::{ComposedGraph, IpldGraph, ContextGraph, WorkflowGraph, ConceptGraph};
+use cim_graph::graphs::context::RelationshipType;
+use cim_graph::graphs::concept::SemanticRelation;
+use cim_graph::graphs::workflow::{WorkflowNode, StateType};
 use cim_graph::{Graph, Result, GraphError};
 use serde_json::json;
 use uuid::Uuid;
@@ -13,23 +16,47 @@ fn test_building_knowledge_graph_from_ipld() -> Result<()> {
     let mut knowledge = ConceptGraph::new();
     
     // Add document CIDs
-    let doc1 = ipld.add_cid("QmDoc1", "dag-cbor", 4096)?;
-    let doc2 = ipld.add_cid("QmDoc2", "dag-cbor", 3072)?;
-    let doc3 = ipld.add_cid("QmDoc3", "dag-cbor", 2048)?;
+    let doc1 = ipld.add_content(serde_json::json!({
+        "cid": "QmDoc1",
+        "format": "dag-cbor",
+        "size": 4096
+    }))?;
+    let doc2 = ipld.add_content(serde_json::json!({
+        "cid": "QmDoc2",
+        "format": "dag-cbor",
+        "size": 3072
+    }))?;
+    let doc3 = ipld.add_content(serde_json::json!({
+        "cid": "QmDoc3",
+        "format": "dag-cbor",
+        "size": 2048
+    }))?;
     
     // Add metadata CIDs
-    let meta1 = ipld.add_cid("QmMeta1", "dag-json", 512)?;
-    let meta2 = ipld.add_cid("QmMeta2", "dag-json", 512)?;
-    let meta3 = ipld.add_cid("QmMeta3", "dag-json", 512)?;
+    let meta1 = ipld.add_content(serde_json::json!({
+        "cid": "QmMeta1",
+        "format": "dag-json",
+        "size": 512
+    }))?;
+    let meta2 = ipld.add_content(serde_json::json!({
+        "cid": "QmMeta2",
+        "format": "dag-json",
+        "size": 512
+    }))?;
+    let meta3 = ipld.add_content(serde_json::json!({
+        "cid": "QmMeta3",
+        "format": "dag-json",
+        "size": 512
+    }))?;
     
     // Link documents to metadata
-    ipld.add_link(doc1, meta1, "metadata")?;
-    ipld.add_link(doc2, meta2, "metadata")?;
-    ipld.add_link(doc3, meta3, "metadata")?;
+    ipld.add_link(&doc1, &meta1, "metadata")?;
+    ipld.add_link(&doc2, &meta2, "metadata")?;
+    ipld.add_link(&doc3, &meta3, "metadata")?;
     
     // Cross-reference documents
-    ipld.add_link(doc1, doc2, "references")?;
-    ipld.add_link(doc2, doc3, "references")?;
+    ipld.add_link(&doc1, &doc2, "references")?;
+    ipld.add_link(&doc2, &doc3, "references")?;
     
     // Simulate extracting concepts from documents
     let doc_concepts = vec![
@@ -55,7 +82,19 @@ fn test_building_knowledge_graph_from_ipld() -> Result<()> {
                     _ => vec![("general", 0.5)],
                 };
                 
-                let concept_id = knowledge.add_concept(concept_name, features)?;
+                let features_json = serde_json::json!({
+                    "category": match concept_name {
+                        "AI" | "machine-learning" | "deep-learning" => "technology",
+                        "neural-networks" | "NLP" | "computer-vision" => "technique",
+                        _ => "general"
+                    },
+                    "weight": match concept_name {
+                        "AI" | "machine-learning" | "deep-learning" => 1.0,
+                        "neural-networks" | "NLP" | "computer-vision" => 0.8,
+                        _ => 0.5
+                    }
+                });
+                let concept_id = knowledge.add_concept(concept_name, concept_name, features_json)?;
                 concept_ids.insert(concept_name, concept_id);
             }
         }
@@ -65,29 +104,25 @@ fn test_building_knowledge_graph_from_ipld() -> Result<()> {
     knowledge.add_relation(
         concept_ids["machine-learning"],
         concept_ids["AI"],
-        "subset-of",
-        0.9
+        SemanticRelation::SubClassOf
     )?;
     
     knowledge.add_relation(
         concept_ids["deep-learning"],
         concept_ids["machine-learning"],
-        "subset-of",
-        0.95
+        SemanticRelation::SubClassOf
     )?;
     
     knowledge.add_relation(
         concept_ids["neural-networks"],
         concept_ids["deep-learning"],
-        "used-by",
-        1.0
+        SemanticRelation::Custom
     )?;
     
     knowledge.add_relation(
         concept_ids["computer-vision"],
         concept_ids["AI"],
-        "application-of",
-        0.85
+        SemanticRelation::Custom
     )?;
     
     // Compose graphs for unified view
@@ -106,8 +141,8 @@ fn test_building_knowledge_graph_from_ipld() -> Result<()> {
 #[test]
 fn test_workflow_pipeline_creation() -> Result<()> {
     // Scenario: Multi-stage data processing pipeline
-    let mut workflow = WorkflowGraph::new("data-pipeline");
-    let mut context = ContextGraph::new("pipeline-context");
+    let mut workflow = WorkflowGraph::new();
+    let mut context = ContextGraph::new();
     
     // Define pipeline stages
     let stages = vec![
@@ -122,79 +157,64 @@ fn test_workflow_pipeline_creation() -> Result<()> {
     // Create workflow states
     let mut state_ids = Vec::new();
     for (name, description) in &stages {
-        let state_id = workflow.add_state(name, json!({
-            "description": description,
-            "retry_count": 3,
-            "timeout_seconds": 300
-        }))?;
+        let state = WorkflowNode::new(name, name, StateType::Normal);
+        let state_id = workflow.add_state(state)?;
         state_ids.push(state_id);
     }
     
     // Add error states
-    let error_state = workflow.add_state("error", json!({
-        "description": "Error handling state",
-        "alert": true
-    }))?;
+    let error_node = WorkflowNode::new("error", "error", StateType::Normal);
+    let error_state = workflow.add_state(error_node)?;
     
-    let retry_state = workflow.add_state("retry", json!({
-        "description": "Retry failed operations",
-        "max_retries": 3
-    }))?;
+    let retry_node = WorkflowNode::new("retry", "retry", StateType::Normal);
+    let retry_state = workflow.add_state(retry_node)?;
     
     // Connect pipeline stages
     for i in 0..state_ids.len()-1 {
         workflow.add_transition(
-            state_ids[i],
-            state_ids[i+1],
-            "success",
-            json!({ "auto": true })
+            &stages[i].0,
+            &stages[i+1].0,
+            "success"
         )?;
         
         // Add error transitions
         workflow.add_transition(
-            state_ids[i],
-            error_state,
+            &stages[i].0,
             "error",
-            json!({ "capture_context": true })
+            "error"
         )?;
     }
     
     // Add retry logic
     workflow.add_transition(
-        error_state,
-        retry_state,
+        "error",
         "retry",
-        json!({ "backoff": "exponential" })
+        "retry"
     )?;
     
     // Retry can go back to any stage
     for (i, state_id) in state_ids.iter().enumerate() {
         workflow.add_transition(
-            retry_state,
-            *state_id,
-            &format!("retry-stage-{}", i),
-            json!({ "condition": format!("failed_stage == {}", i) })
+            "retry",
+            &stages[i].0,
+            &format!("retry-stage-{}", i)
         )?;
     }
     
+    // Add bounded context
+    context.add_bounded_context("pipeline", "Pipeline Context")?;
+    
     // Add pipeline execution context
-    let pipeline_run = context.add_aggregate("PipelineRun", Uuid::new_v4(), json!({
-        "run_id": Uuid::new_v4().to_string(),
-        "started_at": "2024-01-15T10:00:00Z",
-        "status": "running"
-    }))?;
+    let pipeline_run_id = Uuid::new_v4().to_string();
+    let pipeline_run = context.add_aggregate(&pipeline_run_id, "PipelineRun", "pipeline")?;
     
     // Add stage execution entities
     for (name, _) in &stages {
+        let stage_exec_id = Uuid::new_v4().to_string();
         context.add_entity(
-            "StageExecution",
-            Uuid::new_v4(),
-            pipeline_run,
-            json!({
-                "stage": name,
-                "status": "pending",
-                "attempts": 0
-            })
+            &stage_exec_id,
+            &format!("StageExecution_{}", name),
+            &pipeline_run
         )?;
     }
     
@@ -214,64 +234,49 @@ fn test_workflow_pipeline_creation() -> Result<()> {
 #[test]
 fn test_domain_modeling_with_context_graphs() -> Result<()> {
     // Scenario: E-commerce domain model with multiple bounded contexts
-    let mut catalog_ctx = ContextGraph::new("catalog");
-    let mut order_ctx = ContextGraph::new("order-management");
-    let mut inventory_ctx = ContextGraph::new("inventory");
-    let mut customer_ctx = ContextGraph::new("customer");
+    let mut catalog_ctx = ContextGraph::new();
+    let mut order_ctx = ContextGraph::new();
+    let mut inventory_ctx = ContextGraph::new();
+    let mut customer_ctx = ContextGraph::new();
+    
+    // Add bounded contexts
+    catalog_ctx.add_bounded_context("catalog", "Product Catalog")?;
     
     // Catalog context
-    let category = catalog_ctx.add_aggregate("Category", Uuid::new_v4(), json!({
-        "name": "Electronics",
-        "slug": "electronics"
-    }))?;
+    let category_id = Uuid::new_v4().to_string();
+    let category = catalog_ctx.add_aggregate(&category_id, "Category_Electronics", "catalog")?;
     
-    let product = catalog_ctx.add_aggregate("Product", Uuid::new_v4(), json!({
-        "name": "Laptop Pro X",
-        "sku": "LPX-001",
-        "price": 1299.99
-    }))?;
+    let product_id = Uuid::new_v4().to_string();
+    let product = catalog_ctx.add_aggregate(&product_id, "Product_LaptopProX", "catalog")?;
     
-    catalog_ctx.add_relationship(product, category, "belongs-to")?;
+    catalog_ctx.add_relationship(product, category, RelationshipType::References)?;
     
     // Customer context
-    let customer = customer_ctx.add_aggregate("Customer", Uuid::new_v4(), json!({
-        "email": "john@example.com",
-        "tier": "premium"
-    }))?;
+    customer_ctx.add_bounded_context("customer", "Customer Management")?;
     
-    let address = customer_ctx.add_entity("Address", Uuid::new_v4(), customer, json!({
-        "type": "shipping",
-        "street": "123 Main St",
-        "city": "Seattle"
-    }))?;
+    let customer_id = Uuid::new_v4().to_string();
+    let customer = customer_ctx.add_aggregate(&customer_id, "Customer_John", "customer")?;
+    
+    let address_id = Uuid::new_v4().to_string();
+    let address = customer_ctx.add_entity(&address_id, "Address_Shipping", &customer)?;
     
     // Order context
-    let order = order_ctx.add_aggregate("Order", Uuid::new_v4(), json!({
-        "order_number": "ORD-2024-001",
-        "customer_id": customer.to_string(),
-        "total": 1299.99,
-        "status": "pending"
-    }))?;
+    order_ctx.add_bounded_context("orders", "Order Management")?;
     
-    let order_item = order_ctx.add_entity("OrderItem", Uuid::new_v4(), order, json!({
-        "product_sku": "LPX-001",
-        "quantity": 1,
-        "price": 1299.99
-    }))?;
+    let order_id = Uuid::new_v4().to_string();
+    let order = order_ctx.add_aggregate(&order_id, "Order_2024_001", "orders")?;
+    
+    let order_item_id = Uuid::new_v4().to_string();
+    let order_item = order_ctx.add_entity(&order_item_id, "OrderItem_LPX001", &order)?;
     
     // Inventory context
-    let stock = inventory_ctx.add_aggregate("StockItem", Uuid::new_v4(), json!({
-        "sku": "LPX-001",
-        "quantity_on_hand": 50,
-        "reserved": 1,
-        "available": 49
-    }))?;
+    inventory_ctx.add_bounded_context("inventory", "Inventory Management")?;
     
-    let reservation = inventory_ctx.add_entity("Reservation", Uuid::new_v4(), stock, json!({
-        "order_id": order.to_string(),
-        "quantity": 1,
-        "expires_at": "2024-01-16T10:00:00Z"
-    }))?;
+    let stock_id = Uuid::new_v4().to_string();
+    let stock = inventory_ctx.add_aggregate(&stock_id, "StockItem_LPX001", "inventory")?;
+    
+    let reservation_id = Uuid::new_v4().to_string();
+    let reservation = inventory_ctx.add_entity(&reservation_id, "Reservation", stock)?;
     
     // Create domain model
     let domain_model = ComposedGraph::builder()
@@ -316,8 +321,8 @@ fn test_domain_modeling_with_context_graphs() -> Result<()> {
 fn test_event_sourcing_workflow() -> Result<()> {
     // Scenario: Event-sourced order processing
     let mut events = IpldGraph::new();
-    let mut workflow = WorkflowGraph::new("order-workflow");
-    let mut context = ContextGraph::new("order-aggregate");
+    let mut workflow = WorkflowGraph::new();
+    let mut context = ContextGraph::new();
     
     // Create event stream
     let event_cids = vec![
@@ -342,33 +347,34 @@ fn test_event_sourcing_workflow() -> Result<()> {
     // Add events to IPLD
     let mut prev_cid = None;
     for (cid, event_type, data) in event_cids {
-        let event_id = events.add_cid(cid, "dag-cbor", 256)?;
+        let event_id = events.add_content(serde_json::json!({ "cid": cid, "format": "dag-cbor", "size": 256 }))?;
         
         // Chain events
         if let Some(prev) = prev_cid {
-            events.add_link(event_id, prev, "previous")?;
+            events.add_link(&event_id, &prev, "previous")?;
         }
         prev_cid = Some(event_id);
     }
     
     // Build workflow from event types
-    let created = workflow.add_state("created", json!({ "initial": true }))?;
-    let paid = workflow.add_state("paid", json!({}))?;
-    let shipped = workflow.add_state("shipped", json!({}))?;
-    let delivered = workflow.add_state("delivered", json!({ "final": true }))?;
+    let created_node = WorkflowNode::new("created", "created", StateType::Initial);
+    let created = workflow.add_state(created_node)?;
+    let paid_node = WorkflowNode::new("paid", "paid", StateType::Normal);
+    let paid = workflow.add_state(paid_node)?;
+    let shipped_node = WorkflowNode::new("shipped", "shipped", StateType::Normal);
+    let shipped = workflow.add_state(shipped_node)?;
+    let delivered_node = WorkflowNode::new("delivered", "delivered", StateType::Final);
+    let delivered = workflow.add_state(delivered_node)?;
     
-    workflow.add_transition(created, paid, "payment-received", json!({}))?;
-    workflow.add_transition(paid, shipped, "order-shipped", json!({}))?;
-    workflow.add_transition(shipped, delivered, "order-delivered", json!({}))?;
+    workflow.add_transition("created", "paid", "payment-received")?;
+    workflow.add_transition("paid", "shipped", "order-shipped")?;
+    workflow.add_transition("shipped", "delivered", "order-delivered")?;
     
     // Build current aggregate state
-    let order_aggregate = context.add_aggregate("Order", Uuid::new_v4(), json!({
-        "order_id": "123",
-        "status": "shipped",
-        "customer": "alice@example.com",
-        "total": 99.99,
-        "tracking": "1Z999AA1234567890"
-    }))?;
+    context.add_bounded_context("order_mgmt", "Order Management")?;
+    
+    let order_agg_id = Uuid::new_v4().to_string();
+    let order_aggregate = context.add_aggregate(&order_agg_id, "Order_123", "order_mgmt")?;
     
     // Compose for complete view
     let event_sourced = ComposedGraph::builder()
@@ -388,64 +394,57 @@ fn test_event_sourcing_workflow() -> Result<()> {
 #[test]
 fn test_recommendation_system() -> Result<()> {
     // Scenario: Content recommendation using concept graphs
-    let mut content = ContextGraph::new("content");
+    let mut content = ContextGraph::new();
     let mut user_prefs = ConceptGraph::new();
     let mut content_features = ConceptGraph::new();
     
     // Add content items
-    let article1 = content.add_aggregate("Article", Uuid::new_v4(), json!({
-        "title": "Introduction to Machine Learning",
-        "category": "tech",
-        "tags": ["ML", "AI", "beginner"]
-    }))?;
+    content.add_bounded_context("content", "Content Management")?;
     
-    let article2 = content.add_aggregate("Article", Uuid::new_v4(), json!({
-        "title": "Deep Learning with PyTorch",
-        "category": "tech",
-        "tags": ["ML", "deep-learning", "pytorch", "advanced"]
-    }))?;
+    let article1_id = Uuid::new_v4().to_string();
+    let article1 = content.add_aggregate(&article1_id, "Article_ML_Intro", "content")?;
     
-    let article3 = content.add_aggregate("Article", Uuid::new_v4(), json!({
-        "title": "Web Development Best Practices",
-        "category": "tech",
-        "tags": ["web", "javascript", "frontend"]
-    }))?;
+    let article2_id = Uuid::new_v4().to_string();
+    let article2 = content.add_aggregate(&article2_id, "Article_Deep_Learning", "content")?;
+    
+    let article3_id = Uuid::new_v4().to_string();
+    let article3 = content.add_aggregate(&article3_id, "Article_Web_Dev", "content")?;
     
     // Add user preferences as concepts
-    let user_ml = user_prefs.add_concept("user-likes-ml", vec![
-        ("machine-learning", 0.9),
-        ("artificial-intelligence", 0.8),
-        ("data-science", 0.7)
-    ])?;
+    let user_ml = user_prefs.add_concept("user-likes-ml", "User likes ML", serde_json::json!({
+        "machine-learning": 0.9,
+        "artificial-intelligence": 0.8,
+        "data-science": 0.7
+    }))?;
     
-    let user_beginner = user_prefs.add_concept("user-level-beginner", vec![
-        ("beginner-friendly", 1.0),
-        ("tutorials", 0.8),
-        ("step-by-step", 0.9)
-    ])?;
+    let user_beginner = user_prefs.add_concept("user-level-beginner", "User is beginner", serde_json::json!({
+        "beginner-friendly": 1.0,
+        "tutorials": 0.8,
+        "step-by-step": 0.9
+    }))?;
     
     // Add content features as concepts
-    let ml_content = content_features.add_concept("ml-content", vec![
-        ("machine-learning", 1.0),
-        ("technical", 0.8),
-        ("mathematical", 0.7)
-    ])?;
+    let ml_content = content_features.add_concept("ml-content", "ML Content", serde_json::json!({
+        "machine-learning": 1.0,
+        "technical": 0.8,
+        "mathematical": 0.7
+    }))?;
     
-    let beginner_content = content_features.add_concept("beginner-content", vec![
-        ("beginner-friendly", 1.0),
-        ("introductory", 0.9),
-        ("foundational", 0.8)
-    ])?;
+    let beginner_content = content_features.add_concept("beginner-content", "Beginner Content", serde_json::json!({
+        "beginner-friendly": 1.0,
+        "introductory": 0.9,
+        "foundational": 0.8
+    }))?;
     
-    let advanced_content = content_features.add_concept("advanced-content", vec![
-        ("advanced", 1.0),
-        ("complex", 0.9),
-        ("specialized", 0.8)
-    ])?;
+    let advanced_content = content_features.add_concept("advanced-content", "Advanced Content", serde_json::json!({
+        "advanced": 1.0,
+        "complex": 0.9,
+        "specialized": 0.8
+    }))?;
     
     // Add relationships
-    content_features.add_relation(ml_content, beginner_content, "can-be", 0.7)?;
-    content_features.add_relation(ml_content, advanced_content, "can-be", 0.8)?;
+    content_features.add_relation("ml-content", "beginner-content", SemanticRelation::Custom)?;
+    content_features.add_relation("ml-content", "advanced-content", SemanticRelation::Custom)?;
     
     // Compose for recommendation engine
     let recommender = ComposedGraph::builder()

@@ -19,8 +19,10 @@ impl KnowledgeBase {
     }
     
     fn add_concept(&mut self, id: &str, name: &str, description: &str) -> Result<()> {
-        let concept = ConceptNode::new(id, name, description);
-        self.graph.add_concept(concept)?;
+        use serde_json::json;
+        self.graph.add_concept(id, name, json!({
+            "description": description
+        }))?;
         println!("✓ Added concept: {} - {}", id, name);
         Ok(())
     }
@@ -38,8 +40,12 @@ impl KnowledgeBase {
             for edge_id in edges {
                 if let Some(edge) = self.graph.graph().get_edge(&edge_id) {
                     if edge.relation == relation {
-                        if let Some(target) = self.graph.get_concept(&edge.target) {
-                            println!("  - {} ({})", target.label(), target.description());
+                        if let Some(target) = self.graph.graph().get_node(&edge.target) {
+                            if let Some(desc) = target.properties().get("description") {
+                                println!("  - {} ({})", target.label(), desc);
+                            } else {
+                                println!("  - {}", target.label());
+                            }
                         }
                     }
                 }
@@ -55,7 +61,7 @@ impl KnowledgeBase {
     fn print_hierarchy(&self, concept_id: &str, depth: usize) {
         let indent = "  ".repeat(depth);
         
-        if let Some(concept) = self.graph.get_concept(concept_id) {
+        if let Some(concept) = self.graph.graph().get_node(concept_id) {
             println!("{}- {} ({})", indent, concept.label(), concept.id());
             
             // Find all children (IsA relationships pointing to this concept)

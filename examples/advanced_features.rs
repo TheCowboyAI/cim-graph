@@ -8,7 +8,7 @@
 //! - Error handling patterns
 
 use cim_graph::{
-    algorithms::{dijkstra, pagerank},
+    algorithms::{shortest_path, centrality},
     core::{EventGraph, GraphEvent},
     graphs::{ComposedGraph, ContextGraph, IpldGraph, WorkflowGraph},
     GraphBuilder, Node, Edge, Result, GraphError,
@@ -79,14 +79,19 @@ fn graph_composition_example() -> Result<()> {
     
     // Create different domain graphs
     let mut ipld = IpldGraph::new();
-    let data_cid = ipld.add_cid("QmData123", "dag-json", 2048)?;
+    let data_cid = ipld.add_content(serde_json::json!({
+        "cid": "QmData123",
+        "format": "dag-json",
+        "size": 2048
+    }))?;
     
-    let mut context = ContextGraph::new("business");
+    let mut context = ContextGraph::new();
+    let bounded_context = context.add_bounded_context("business", "Business Context")?;
     let entity = context.add_aggregate(
+        Uuid::new_v4().to_string(),
         "Document",
-        Uuid::new_v4(),
-        serde_json::json!({
-            "title": "Important Document",
+        bounded_context
+    )?;
             "ipld_cid": "QmData123"
         })
     )?;
@@ -164,16 +169,16 @@ fn performance_example() -> Result<()> {
     
     // Benchmark algorithms
     let algo_start = Instant::now();
-    let ranks = pagerank(&graph, 0.85, 10)?;
-    let pagerank_time = algo_start.elapsed();
+    let centralities = centrality(&graph)?;
+    let centrality_time = algo_start.elapsed();
     
-    println!("PageRank computed in {:?}", pagerank_time);
+    println!("Centrality computed in {:?}", centrality_time);
     
     // Find top nodes
-    let mut ranked: Vec<_> = ranks.into_iter().collect();
+    let mut ranked: Vec<_> = centralities.into_iter().collect();
     ranked.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
     
-    println!("Top 3 nodes by PageRank:");
+    println!("Top 3 nodes by Centrality:");
     for (node_id, score) in ranked.iter().take(3) {
         let node = graph.get_node(*node_id).unwrap();
         println!("  {}: {:.4}", node.data(), score);

@@ -8,20 +8,15 @@ fn test_ac_008_1_define_ontology() {
     let mut graph = ConceptGraph::new();
     
     // When: I define class hierarchy
-    let thing = ConceptNode::new("Thing", "Thing", ConceptType::Class);
-    let animal = ConceptNode::new("Animal", "Animal", ConceptType::Class);
-    let mammal = ConceptNode::new("Mammal", "Mammal", ConceptType::Class);
-    let dog = ConceptNode::new("Dog", "Dog", ConceptType::Class);
-    
-    graph.add_concept(thing).unwrap();
-    graph.add_concept(animal).unwrap();
-    graph.add_concept(mammal).unwrap();
-    graph.add_concept(dog).unwrap();
+    graph.add_concept("Thing", "Thing", serde_json::json!({})).unwrap();
+    graph.add_concept("Animal", "Animal", serde_json::json!({})).unwrap();
+    graph.add_concept("Mammal", "Mammal", serde_json::json!({})).unwrap();
+    graph.add_concept("Dog", "Dog", serde_json::json!({})).unwrap();
     
     // And: define relationships
-    graph.add_relation(ConceptEdge::new("Animal", "Thing", SemanticRelation::SubClassOf)).unwrap();
-    graph.add_relation(ConceptEdge::new("Mammal", "Animal", SemanticRelation::SubClassOf)).unwrap();
-    graph.add_relation(ConceptEdge::new("Dog", "Mammal", SemanticRelation::SubClassOf)).unwrap();
+    graph.add_relation("Animal", "Thing", SemanticRelation::SubClassOf).unwrap();
+    graph.add_relation("Mammal", "Animal", SemanticRelation::SubClassOf).unwrap();
+    graph.add_relation("Dog", "Mammal", SemanticRelation::SubClassOf).unwrap();
     
     // Then: ontology is created
     assert_eq!(graph.graph().node_count(), 4);
@@ -34,17 +29,17 @@ fn test_ac_008_2_semantic_inference() {
     let mut graph = ConceptGraph::new();
     
     // Classes
-    graph.add_concept(ConceptNode::new("LivingThing", "Living Thing", ConceptType::Class)).unwrap();
-    graph.add_concept(ConceptNode::new("Animal", "Animal", ConceptType::Class)).unwrap();
-    graph.add_concept(ConceptNode::new("Dog", "Dog", ConceptType::Class)).unwrap();
+    graph.add_concept("LivingThing", "Living Thing", serde_json::json!({})).unwrap();
+    graph.add_concept("Animal", "Animal", serde_json::json!({})).unwrap();
+    graph.add_concept("Dog", "Dog", serde_json::json!({})).unwrap();
     
     // Hierarchy
-    graph.add_relation(ConceptEdge::new("Animal", "LivingThing", SemanticRelation::SubClassOf)).unwrap();
-    graph.add_relation(ConceptEdge::new("Dog", "Animal", SemanticRelation::SubClassOf)).unwrap();
+    graph.add_relation("Animal", "LivingThing", SemanticRelation::SubClassOf).unwrap();
+    graph.add_relation("Dog", "Animal", SemanticRelation::SubClassOf).unwrap();
     
     // Instance
-    graph.add_concept(ConceptNode::new("fido", "Fido", ConceptType::Instance)).unwrap();
-    graph.add_relation(ConceptEdge::new("fido", "Dog", SemanticRelation::InstanceOf)).unwrap();
+    graph.add_concept("fido", "Fido", serde_json::json!({"type": "Instance"})).unwrap();
+    graph.add_relation("fido", "Dog", SemanticRelation::InstanceOf).unwrap();
     
     // When: I run inference
     graph.run_inference();
@@ -65,18 +60,18 @@ fn test_ac_008_3_properties_and_constraints() {
     let mut graph = ConceptGraph::new();
     
     // Define property
-    let mut has_age = ConceptNode::new("hasAge", "has age", ConceptType::Property);
-    has_age.add_annotation("domain", "Person");
-    has_age.add_annotation("range", "Integer");
-    
-    graph.add_concept(has_age).unwrap();
+    graph.add_concept("hasAge", "has age", serde_json::json!({
+        "type": "Property",
+        "domain": "Person",
+        "range": "Integer"
+    })).unwrap();
     
     // Define classes
-    graph.add_concept(ConceptNode::new("Person", "Person", ConceptType::Class)).unwrap();
-    graph.add_concept(ConceptNode::new("Adult", "Adult", ConceptType::Class)).unwrap();
+    graph.add_concept("Person", "Person", serde_json::json!({})).unwrap();
+    graph.add_concept("Adult", "Adult", serde_json::json!({})).unwrap();
     
     // Adult is a Person with age >= 18 (simplified)
-    graph.add_relation(ConceptEdge::new("Adult", "Person", SemanticRelation::SubClassOf)).unwrap();
+    graph.add_relation("Adult", "Person", SemanticRelation::SubClassOf).unwrap();
     
     // When: I query the property
     let property = graph.graph().get_node("hasAge").unwrap();
@@ -91,15 +86,15 @@ fn test_ac_008_4_consistency_checking() {
     let mut graph = ConceptGraph::new();
     
     // Define disjoint classes
-    graph.add_concept(ConceptNode::new("Plant", "Plant", ConceptType::Class)).unwrap();
-    graph.add_concept(ConceptNode::new("Animal", "Animal", ConceptType::Class)).unwrap();
+    graph.add_concept("Plant", "Plant", serde_json::json!({})).unwrap();
+    graph.add_concept("Animal", "Animal", serde_json::json!({})).unwrap();
     
-    graph.add_relation(ConceptEdge::new("Plant", "Animal", SemanticRelation::DisjointWith)).unwrap();
+    graph.add_relation("Plant", "Animal", SemanticRelation::DisjointWith).unwrap();
     
     // Create an inconsistent instance
-    graph.add_concept(ConceptNode::new("confused", "Confused Thing", ConceptType::Instance)).unwrap();
-    graph.add_relation(ConceptEdge::new("confused", "Plant", SemanticRelation::InstanceOf)).unwrap();
-    graph.add_relation(ConceptEdge::new("confused", "Animal", SemanticRelation::InstanceOf)).unwrap();
+    graph.add_concept("confused", "Confused Thing", serde_json::json!({"type": "Instance"})).unwrap();
+    graph.add_relation("confused", "Plant", SemanticRelation::InstanceOf).unwrap();
+    graph.add_relation("confused", "Animal", SemanticRelation::InstanceOf).unwrap();
     
     // When: I check consistency
     let violations = graph.check_consistency();
@@ -115,19 +110,19 @@ fn test_semantic_queries() {
     let mut graph = ConceptGraph::new();
     
     // Build a small taxonomy
-    graph.add_concept(ConceptNode::new("Vehicle", "Vehicle", ConceptType::Class)).unwrap();
-    graph.add_concept(ConceptNode::new("Car", "Car", ConceptType::Class)).unwrap();
-    graph.add_concept(ConceptNode::new("Truck", "Truck", ConceptType::Class)).unwrap();
+    graph.add_concept("Vehicle", "Vehicle", serde_json::json!({})).unwrap();
+    graph.add_concept("Car", "Car", serde_json::json!({})).unwrap();
+    graph.add_concept("Truck", "Truck", serde_json::json!({})).unwrap();
     
-    graph.add_relation(ConceptEdge::new("Car", "Vehicle", SemanticRelation::SubClassOf)).unwrap();
-    graph.add_relation(ConceptEdge::new("Truck", "Vehicle", SemanticRelation::SubClassOf)).unwrap();
+    graph.add_relation("Car", "Vehicle", SemanticRelation::SubClassOf).unwrap();
+    graph.add_relation("Truck", "Vehicle", SemanticRelation::SubClassOf).unwrap();
     
     // Add instances
-    graph.add_concept(ConceptNode::new("sedan1", "Sedan 1", ConceptType::Instance)).unwrap();
-    graph.add_concept(ConceptNode::new("truck1", "Truck 1", ConceptType::Instance)).unwrap();
+    graph.add_concept("sedan1", "Sedan 1", serde_json::json!({"type": "Instance"})).unwrap();
+    graph.add_concept("truck1", "Truck 1", serde_json::json!({"type": "Instance"})).unwrap();
     
-    graph.add_relation(ConceptEdge::new("sedan1", "Car", SemanticRelation::InstanceOf)).unwrap();
-    graph.add_relation(ConceptEdge::new("truck1", "Truck", SemanticRelation::InstanceOf)).unwrap();
+    graph.add_relation("sedan1", "Car", SemanticRelation::InstanceOf).unwrap();
+    graph.add_relation("truck1", "Truck", SemanticRelation::InstanceOf).unwrap();
     
     // Run inference
     graph.run_inference();

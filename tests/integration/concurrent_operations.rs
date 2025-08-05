@@ -1,6 +1,9 @@
 //! Tests for concurrent operations and thread safety
 
 use cim_graph::graphs::{ComposedGraph, IpldGraph, ContextGraph, WorkflowGraph, ConceptGraph};
+use cim_graph::graphs::context::RelationshipType;
+use cim_graph::graphs::workflow::{WorkflowNode, StateType};
+use cim_graph::graphs::concept::SemanticRelation;
 use cim_graph::{Graph, Result, GraphError};
 use serde_json::json;
 use uuid::Uuid;
@@ -10,7 +13,7 @@ use std::time::Duration;
 
 #[test]
 fn test_concurrent_node_additions() -> Result<()> {
-    let graph = Arc::new(std::sync::Mutex::new(ContextGraph::new("concurrent")));
+    let graph = Arc::new(std::sync::Mutex::new(ContextGraph::new()));
     let num_threads = 4;
     let nodes_per_thread = 25;
     
@@ -26,13 +29,17 @@ fn test_concurrent_node_additions() -> Result<()> {
             
             for i in 0..nodes_per_thread {
                 let mut g = graph_clone.lock().unwrap();
+                
+                // Add bounded context if this is the first node
+                if g.node_count() == 0 {
+                    g.add_bounded_context("concurrent", "Concurrent Test").unwrap();
+                }
+                
+                let node_id = Uuid::new_v4().to_string();
                 g.add_aggregate(
-                    &format!("Entity-{}-{}", thread_id, i),
-                    Uuid::new_v4(),
-                    json!({
-                        "thread": thread_id,
-                        "index": i
-                    })
+                    &node_id,
+                    &format!("Entity_{}_{}", thread_id, i),
+                    "concurrent"
                 ).unwrap();
             }
         });
@@ -57,7 +64,7 @@ fn test_concurrent_reads() -> Result<()> {
     let node_count = 100;
     
     for i in 0..node_count {
-        base_graph.add_cid(&format!("Qm{}", i), "dag-cbor", i * 100)?;
+        base_graph.add_content(serde_json::json!({ "cid": &format!("Qm{}", i), "format": "dag-cbor", "size": i * 100 }))?;
     }
     
     let graph = Arc::new(base_graph);
@@ -107,13 +114,15 @@ fn test_concurrent_graph_composition() -> Result<()> {
             barrier_clone.wait();
             
             // Each thread creates its own graph
-            let mut graph = ContextGraph::new(&format!("context-{}", thread_id));
+            let mut graph = ContextGraph::new();
+            graph.add_bounded_context("test", "Test Context").unwrap();
             
             for i in 0..10 {
+                let node_id = Uuid::new_v4().to_string();
                 graph.add_aggregate(
-                    "Entity",
-                    Uuid::new_v4(),
-                    json!({ "thread": thread_id, "index": i })
+                    &node_id,
+                    &format!("Entity_{}_{}", thread_id, i),
+                    "test"
                 ).unwrap();
             }
             
@@ -140,13 +149,15 @@ fn test_concurrent_graph_composition() -> Result<()> {
 
 #[test]
 fn test_race_condition_prevention() -> Result<()> {
-    let graph = Arc::new(std::sync::Mutex::new(WorkflowGraph::new("race-test")));
+    let graph = Arc::new(std::sync::Mutex::new(WorkflowGraph::new()));
     
     // Add initial states
     let (s1, s2) = {
         let mut g = graph.lock().unwrap();
-        let state1 = g.add_state("state1", json!({}))?;
-        let state2 = g.add_state("state2", json!({}))?;
+        let state1_node = WorkflowNode::new("state1", "state1", StateType::Initial);
+        let state1 = g.add_state(state1_node)?;
+        let state2_node = WorkflowNode::new("state2", "state2", StateType::Normal);
+        let state2 = g.add_state(state2_node)?;
         (state1, state2)
     };
     
@@ -158,7 +169,7 @@ fn test_race_condition_prevention() -> Result<()> {
     let handle1 = thread::spawn(move || {
         barrier.wait();
         let mut g = graph1.lock().unwrap();
-        g.add_transition(s1, s2, "transition-1", json!({}))
+        g.add_transition("state1", "state2", "transition-1")
     });
     
     // Thread 2 tries to add same transition
@@ -166,7 +177,7 @@ fn test_race_condition_prevention() -> Result<()> {
         barrier.wait();
         thread::sleep(Duration::from_millis(10)); // Small delay
         let mut g = graph2.lock().unwrap();
-        g.add_transition(s1, s2, "transition-1", json!({}))
+        g.add_transition("state1", "state2", "transition-1")
     });
     
     let result1 = handle1.join().unwrap();
@@ -181,20 +192,29 @@ fn test_race_condition_prevention() -> Result<()> {
 #[test]
 fn test_concurrent_traversals() -> Result<()> {
     // Create a complex graph
-    let mut base_graph = WorkflowGraph::new("traversal-test");
+    let mut base_graph = WorkflowGraph::new();
     
     // Create branching workflow
-    let start = base_graph.add_state("start", json!({}))?;
+    let start_node = WorkflowNode::new("start", "start", StateType::Initial);
+    let start = base_graph.add_state(start_node)?;
     let mut branches = vec![];
     
     for i in 0..4 {
-        let branch_start = base_graph.add_state(&format!("branch-{}-start", i), json!({}))?;
-        let branch_mid = base_graph.add_state(&format!("branch-{}-mid", i), json!({}))?;
-        let branch_end = base_graph.add_state(&format!("branch-{}-end", i), json!({}))?;
+        let branch_start_name = format!("branch-{}-start", i);
+        let branch_start_node = WorkflowNode::new(&branch_start_name, &branch_start_name, StateType::Normal);
+        let branch_start = base_graph.add_state(branch_start_node)?;
         
-        base_graph.add_transition(start, branch_start, &format!("to-branch-{}", i), json!({}))?;
-        base_graph.add_transition(branch_start, branch_mid, "continue", json!({}))?;
-        base_graph.add_transition(branch_mid, branch_end, "finish", json!({}))?;
+        let branch_mid_name = format!("branch-{}-mid", i);
+        let branch_mid_node = WorkflowNode::new(&branch_mid_name, &branch_mid_name, StateType::Normal);
+        let branch_mid = base_graph.add_state(branch_mid_node)?;
+        
+        let branch_end_name = format!("branch-{}-end", i);
+        let branch_end_node = WorkflowNode::new(&branch_end_name, &branch_end_name, StateType::Normal);
+        let branch_end = base_graph.add_state(branch_end_node)?;
+        
+        base_graph.add_transition("start", &branch_start_name, &format!("to-branch-{}", i))?;
+        base_graph.add_transition(&branch_start_name, &branch_mid_name, "continue")?;
+        base_graph.add_transition(&branch_mid_name, &branch_end_name, "finish")?;
         
         branches.push((branch_start, branch_mid, branch_end));
     }
@@ -235,11 +255,12 @@ fn test_concurrent_serialization() -> Result<()> {
     
     // Add concepts
     for i in 0..50 {
-        let features = vec![
-            ("feature1", (i as f64) / 50.0),
-            ("feature2", 1.0 - (i as f64) / 50.0),
-        ];
-        graph.add_concept(&format!("concept-{}", i), features)?;
+        let concept_name = format!("concept-{}", i);
+        let features = serde_json::json!({
+            "feature1": (i as f64) / 50.0,
+            "feature2": 1.0 - (i as f64) / 50.0
+        });
+        graph.add_concept(&concept_name, &concept_name, features)?;
     }
     
     let graph = Arc::new(graph);
@@ -278,11 +299,16 @@ fn test_concurrent_algorithm_execution() -> Result<()> {
     use cim_graph::algorithms::{bfs, dfs, shortest_path};
     
     // Create shared graph
-    let mut base_graph = WorkflowGraph::new("algo-test");
+    let mut base_graph = WorkflowGraph::new();
     
     // Create interconnected states
     let states: Vec<_> = (0..20)
-        .map(|i| base_graph.add_state(&format!("state-{}", i), json!({})).unwrap())
+        .map(|i| {
+            let state_name = format!("state-{}", i);
+            let state_type = if i == 0 { StateType::Initial } else if i == 19 { StateType::Final } else { StateType::Normal };
+            let state_node = WorkflowNode::new(&state_name, &state_name, state_type);
+            base_graph.add_state(state_node).unwrap()
+        })
         .collect();
     
     // Create mesh of transitions
@@ -343,7 +369,7 @@ fn test_concurrent_algorithm_execution() -> Result<()> {
 
 #[test]
 fn test_memory_consistency() -> Result<()> {
-    let graph = Arc::new(std::sync::Mutex::new(ContextGraph::new("memory-test")));
+    let graph = Arc::new(std::sync::Mutex::new(ContextGraph::new()));
     let num_operations = 1000;
     let num_threads = 4;
     
@@ -360,12 +386,18 @@ fn test_memory_consistency() -> Result<()> {
             for i in 0..num_operations / num_threads {
                 let mut g = graph_clone.lock().unwrap();
                 
+                // Add bounded context if this is the first operation
+                if g.node_count() == 0 {
+                    g.add_bounded_context("mixed", "Mixed Operations Test").unwrap();
+                }
+                
                 // Alternate between adds and reads
                 if i % 2 == 0 {
+                    let node_id = Uuid::new_v4().to_string();
                     g.add_aggregate(
-                        "Entity",
-                        Uuid::new_v4(),
-                        json!({ "thread": thread_id, "op": i })
+                        &node_id,
+                        &format!("Entity_{}_{}", thread_id, i),
+                        "mixed"
                     ).unwrap();
                 } else {
                     // Read current node count

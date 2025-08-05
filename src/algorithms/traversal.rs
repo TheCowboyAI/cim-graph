@@ -125,22 +125,23 @@ pub fn topological_sort<N: Node, E: Edge>(
 mod tests {
     use super::*;
     use crate::core::{GraphBuilder, GraphType};
-    use crate::core::graph::{BasicNode, BasicEdge};
+    use crate::core::node::GenericNode;
+    use crate::core::edge::GenericEdge;
     
     #[test]
     fn test_dfs() {
         let mut graph = GraphBuilder::new()
-            .graph_type(GraphType::BasicGraph)
-            .build_event::<BasicNode, BasicEdge>()
+            .graph_type(GraphType::Generic)
+            .build_event::<GenericNode<&'static str>, GenericEdge<f64>>()
             .unwrap();
             
         // Create a simple graph
-        graph.add_node(BasicNode::new("A")).unwrap();
-        graph.add_node(BasicNode::new("B")).unwrap();
-        graph.add_node(BasicNode::new("C")).unwrap();
+        graph.add_node(GenericNode::new("A", "data")).unwrap();
+        graph.add_node(GenericNode::new("B", "data")).unwrap();
+        graph.add_node(GenericNode::new("C", "data")).unwrap();
         
-        graph.add_edge(BasicEdge::new("A", "B")).unwrap();
-        graph.add_edge(BasicEdge::new("A", "C")).unwrap();
+        graph.add_edge(GenericEdge::new("A", "B", 1.0)).unwrap();
+        graph.add_edge(GenericEdge::new("A", "C", 1.0)).unwrap();
         
         let result = dfs(&graph, "A").unwrap();
         assert_eq!(result.len(), 3);
@@ -150,17 +151,17 @@ mod tests {
     #[test]
     fn test_bfs() {
         let mut graph = GraphBuilder::new()
-            .graph_type(GraphType::BasicGraph)
-            .build_event::<BasicNode, BasicEdge>()
+            .graph_type(GraphType::Generic)
+            .build_event::<GenericNode<&'static str>, GenericEdge<f64>>()
             .unwrap();
             
         // Create a simple graph
-        graph.add_node(BasicNode::new("A")).unwrap();
-        graph.add_node(BasicNode::new("B")).unwrap();
-        graph.add_node(BasicNode::new("C")).unwrap();
+        graph.add_node(GenericNode::new("A", "data")).unwrap();
+        graph.add_node(GenericNode::new("B", "data")).unwrap();
+        graph.add_node(GenericNode::new("C", "data")).unwrap();
         
-        graph.add_edge(BasicEdge::new("A", "B")).unwrap();
-        graph.add_edge(BasicEdge::new("A", "C")).unwrap();
+        graph.add_edge(GenericEdge::new("A", "B", 1.0)).unwrap();
+        graph.add_edge(GenericEdge::new("A", "C", 1.0)).unwrap();
         
         let result = bfs(&graph, "A").unwrap();
         assert_eq!(result.len(), 3);

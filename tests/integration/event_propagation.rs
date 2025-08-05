@@ -1,6 +1,7 @@
 //! Tests for event propagation and handling across graphs
 
 use cim_graph::graphs::{ComposedGraph, IpldGraph, ContextGraph, WorkflowGraph, ConceptGraph};
+use cim_graph::graphs::context::RelationshipType;
 use cim_graph::{GraphEvent, EventHandler, Result};
 use serde_json::json;
 use uuid::Uuid;
@@ -35,10 +36,12 @@ fn test_basic_event_emission() -> Result<()> {
     
     let mut graph = ContextGraph::with_handler(collector.clone());
     
+    // Add bounded context
+    graph.add_bounded_context("test", "Test Context")?;
+    
     // Trigger events
-    let node = graph.add_aggregate("Entity", Uuid::new_v4(), json!({
-        "name": "Test"
-    }))?;
+    let node_id = Uuid::new_v4().to_string();
+    let node = graph.add_aggregate(&node_id, "Entity", "test")?;
     
     let events = collector.get_events();
     assert_eq!(events.len(), 1);
@@ -68,15 +71,15 @@ fn test_edge_event_propagation() -> Result<()> {
     collector.get_events();
     
     // Add transition
-    graph.add_transition(s1, s2, "complete", json!({}))?;
+    graph.add_transition(&s1, &s2, "complete")?;
     
     let events = collector.get_events();
     assert_eq!(events.len(), 1);
     
     match &events[0] {
-        GraphEvent::EdgeAdded { from, to, .. } => {
-            assert_eq!(from, &s1.to_string());
-            assert_eq!(to, &s2.to_string());
+        GraphEvent::EdgeAdded { source, target, .. } => {
+            assert_eq!(source, &s1.to_string());
+            assert_eq!(target, &s2.to_string());
         }
         _ => panic!("Wrong event type"),
     }
@@ -90,16 +93,16 @@ fn test_cascading_events() -> Result<()> {
     
     let mut context = ContextGraph::with_handler(collector.clone());
     
+    // Add bounded context
+    context.add_bounded_context("sales", "Sales Context")?;
+    
     // Add aggregate (should trigger event)
-    let aggregate = context.add_aggregate("Order", Uuid::new_v4(), json!({
-        "total": 100.0
-    }))?;
+    let aggregate_id = Uuid::new_v4().to_string();
+    let aggregate = context.add_aggregate(&aggregate_id, "Order", "sales")?;
     
     // Add entity (should trigger event for entity AND implicit relationship)
-    let entity = context.add_entity("OrderLine", Uuid::new_v4(), aggregate, json!({
-        "product": "Widget",
-        "quantity": 2
-    }))?;
+    let entity_id = Uuid::new_v4().to_string();
+    let entity = context.add_entity(&entity_id, "OrderLine", &aggregate)?;
     
     let events = collector.get_events();
     
@@ -125,7 +128,7 @@ fn test_multiple_subscribers() -> Result<()> {
     graph.graph_mut().add_handler(collector2.clone());
     
     // Add node
-    graph.add_cid("QmTest", "dag-cbor", 1024)?;
+    graph.add_content(serde_json::json!({ "cid": "QmTest", "format": "dag-cbor", "size": 1024 }))?;
     
     // Both collectors should receive the event
     let events1 = collector1.get_events();
@@ -183,13 +186,19 @@ fn test_event_filtering() -> Result<()> {
     let aggregate_handler = Arc::new(FilteredHandler::new("Aggregate"));
     let entity_handler = Arc::new(FilteredHandler::new("Entity"));
     
-    let mut context = ContextGraph::new("filtered");
+    let mut context = ContextGraph::new();
     context.graph_mut().add_handler(aggregate_handler.clone());
     context.graph_mut().add_handler(entity_handler.clone());
     
+    // Add bounded context
+    context.add_bounded_context("test", "Test Context")?;
+    
     // Add different node types
-    let agg = context.add_aggregate("Customer", Uuid::new_v4(), json!({}))?;
-    context.add_entity("Address", Uuid::new_v4(), agg, json!({}))?;
+    let agg_id = Uuid::new_v4().to_string();
+    let agg = context.add_aggregate(&agg_id, "Customer", "test")?;
+    
+    let entity_id = Uuid::new_v4().to_string();
+    context.add_entity(&entity_id, "Address", &agg)?;
     
     // Check filtered events
     let agg_events = aggregate_handler.get_events();
@@ -213,8 +222,8 @@ fn test_event_ordering() -> Result<()> {
     let s2 = workflow.add_state("s2", json!({}))?;
     let s3 = workflow.add_state("s3", json!({}))?;
     
-    workflow.add_transition(s1, s2, "t1", json!({}))?;
-    workflow.add_transition(s2, s3, "t2", json!({}))?;
+    workflow.add_transition(&s1, &s2, "t1")?;
+    workflow.add_transition(&s2, &s3, "t2")?;
     
     let events = collector.get_events();
     
@@ -243,12 +252,15 @@ fn test_composed_graph_events() -> Result<()> {
     let mut ipld = IpldGraph::new();
     ipld.graph_mut().add_handler(ipld_collector.clone());
     
-    let mut context = ContextGraph::new("test");
+    let mut context = ContextGraph::new();
     context.graph_mut().add_handler(context_collector.clone());
     
     // Add data to individual graphs
-    ipld.add_cid("QmTest", "dag-cbor", 256)?;
-    context.add_aggregate("Entity", Uuid::new_v4(), json!({}))?;
+    ipld.add_content(serde_json::json!({ "cid": "QmTest", "format": "dag-cbor", "size": 256 }))?;
+    
+    context.add_bounded_context("test", "Test Context")?;
+    let entity_id = Uuid::new_v4().to_string();
+    context.add_aggregate(&entity_id, "Entity", "test")?;
     
     // Verify individual events
     assert_eq!(ipld_collector.get_events().len(), 1);
@@ -297,15 +309,20 @@ fn test_error_in_event_handler() -> Result<()> {
     let failing_handler = Arc::new(FailingHandler::new(2));
     let normal_collector = Arc::new(EventCollector::new());
     
-    let mut graph = ContextGraph::new("error-test");
+    let mut graph = ContextGraph::new();
     graph.graph_mut().add_handler(failing_handler);
     graph.graph_mut().add_handler(normal_collector.clone());
     
+    // Add bounded context
+    graph.add_bounded_context("test", "Test Context")?;
+    
     // First event should succeed
-    graph.add_aggregate("Entity1", Uuid::new_v4(), json!({}))?;
+    let entity1_id = Uuid::new_v4().to_string();
+    graph.add_aggregate(&entity1_id, "Entity1", "test")?;
     
     // Second event - handler fails but shouldn't affect graph operation
-    let result = graph.add_aggregate("Entity2", Uuid::new_v4(), json!({}));
+    let entity2_id = Uuid::new_v4().to_string();
+    let result = graph.add_aggregate(&entity2_id, "Entity2", "test");
     assert!(result.is_ok()); // Graph operation should still succeed
     
     // Normal collector should still receive both events
@@ -384,7 +401,7 @@ fn test_batch_event_handling() -> Result<()> {
     
     // Add 7 nodes (should create 2 complete batches)
     for i in 0..7 {
-        graph.add_cid(&format!("Qm{}", i), "dag-cbor", 100)?;
+        graph.add_content(serde_json::json!({ "cid": &format!("Qm{}", i), "format": "dag-cbor", "size": 100 }))?;
     }
     
     let batches = batch_handler.get_batches();

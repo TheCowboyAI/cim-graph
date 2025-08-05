@@ -221,7 +221,7 @@ impl IpldGraph {
             visited.push(cid.clone());
             
             if let Some(node) = self.get_node(&cid) {
-                for (_, target_cid) in node.links() {
+                for target_cid in node.links().values() {
                     queue.push((target_cid.clone(), depth + 1));
                 }
             }

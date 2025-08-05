@@ -56,7 +56,7 @@ impl ConceptNode {
     pub fn add_property(&mut self, property: impl Into<String>, value: serde_json::Value) {
         self.properties
             .entry(property.into())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(value);
     }
     
@@ -251,6 +251,7 @@ pub struct ConceptGraph {
 /// Simple inference rule
 #[derive(Debug, Clone)]
 pub struct InferenceRule {
+    #[allow(dead_code)]
     name: String,
     condition: fn(&ConceptGraph, &str, &str) -> bool,
     conclusion: fn(&str, &str) -> (String, String, SemanticRelation),
@@ -381,7 +382,7 @@ impl ConceptGraph {
         for (from, to, rel) in new_inferences {
             self.inferred
                 .entry(from)
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push((to, rel));
         }
     }
@@ -396,10 +397,8 @@ impl ConceptGraph {
             for target in self.graph.neighbors(&current).unwrap_or_default() {
                 let edges = self.graph.edges_between(&current, &target);
                 for edge in edges {
-                    if edge.relation() == SemanticRelation::SubClassOf {
-                        if superclasses.insert(target.clone()) {
-                            queue.push(target.clone());
-                        }
+                    if edge.relation() == SemanticRelation::SubClassOf && superclasses.insert(target.clone()) {
+                        queue.push(target.clone());
                     }
                 }
             }
@@ -407,10 +406,8 @@ impl ConceptGraph {
             // Inferred superclasses
             if let Some(inferred) = self.inferred.get(&current) {
                 for (target, rel) in inferred {
-                    if *rel == SemanticRelation::SubClassOf {
-                        if superclasses.insert(target.clone()) {
-                            queue.push(target.clone());
-                        }
+                    if *rel == SemanticRelation::SubClassOf && superclasses.insert(target.clone()) {
+                        queue.push(target.clone());
                     }
                 }
             }
@@ -561,17 +558,13 @@ mod tests {
         let mut graph = ConceptGraph::new();
         
         // Create class hierarchy
-        let animal = ConceptNode::new("Animal", "Animal", ConceptType::Class);
-        let mammal = ConceptNode::new("Mammal", "Mammal", ConceptType::Class);
-        let dog = ConceptNode::new("Dog", "Dog", ConceptType::Class);
-        
-        graph.add_concept(animal).unwrap();
-        graph.add_concept(mammal).unwrap();
-        graph.add_concept(dog).unwrap();
+        graph.add_concept("Animal", "Animal", serde_json::json!({})).unwrap();
+        graph.add_concept("Mammal", "Mammal", serde_json::json!({})).unwrap();
+        graph.add_concept("Dog", "Dog", serde_json::json!({})).unwrap();
         
         // Add relationships
-        graph.add_relation(ConceptEdge::new("Mammal", "Animal", SemanticRelation::SubClassOf)).unwrap();
-        graph.add_relation(ConceptEdge::new("Dog", "Mammal", SemanticRelation::SubClassOf)).unwrap();
+        graph.add_relation("Mammal", "Animal", SemanticRelation::SubClassOf).unwrap();
+        graph.add_relation("Dog", "Mammal", SemanticRelation::SubClassOf).unwrap();
         
         // Test direct relationships
         assert!(graph.has_relation("Dog", "Mammal", SemanticRelation::SubClassOf));
@@ -593,13 +586,13 @@ mod tests {
         let mut graph = ConceptGraph::new();
         
         // Create hierarchy
-        graph.add_concept(ConceptNode::new("Animal", "Animal", ConceptType::Class)).unwrap();
-        graph.add_concept(ConceptNode::new("Dog", "Dog", ConceptType::Class)).unwrap();
-        graph.add_concept(ConceptNode::new("fido", "Fido", ConceptType::Instance)).unwrap();
+        graph.add_concept("Animal", "Animal", serde_json::json!({})).unwrap();
+        graph.add_concept("Dog", "Dog", serde_json::json!({})).unwrap();
+        graph.add_concept("fido", "Fido", serde_json::json!({"type": "Instance"})).unwrap();
         
         // Add relationships
-        graph.add_relation(ConceptEdge::new("Dog", "Animal", SemanticRelation::SubClassOf)).unwrap();
-        graph.add_relation(ConceptEdge::new("fido", "Dog", SemanticRelation::InstanceOf)).unwrap();
+        graph.add_relation("Dog", "Animal", SemanticRelation::SubClassOf).unwrap();
+        graph.add_relation("fido", "Dog", SemanticRelation::InstanceOf).unwrap();
         
         // Run inference
         graph.run_inference();
@@ -617,16 +610,16 @@ mod tests {
         let mut graph = ConceptGraph::new();
         
         // Create disjoint classes
-        graph.add_concept(ConceptNode::new("Plant", "Plant", ConceptType::Class)).unwrap();
-        graph.add_concept(ConceptNode::new("Animal", "Animal", ConceptType::Class)).unwrap();
-        graph.add_concept(ConceptNode::new("weird", "Weird Thing", ConceptType::Instance)).unwrap();
+        graph.add_concept("Plant", "Plant", serde_json::json!({})).unwrap();
+        graph.add_concept("Animal", "Animal", serde_json::json!({})).unwrap();
+        graph.add_concept("weird", "Weird Thing", serde_json::json!({"type": "Instance"})).unwrap();
         
         // Make them disjoint
-        graph.add_relation(ConceptEdge::new("Plant", "Animal", SemanticRelation::DisjointWith)).unwrap();
+        graph.add_relation("Plant", "Animal", SemanticRelation::DisjointWith).unwrap();
         
         // Add conflicting instance relationships
-        graph.add_relation(ConceptEdge::new("weird", "Plant", SemanticRelation::InstanceOf)).unwrap();
-        graph.add_relation(ConceptEdge::new("weird", "Animal", SemanticRelation::InstanceOf)).unwrap();
+        graph.add_relation("weird", "Plant", SemanticRelation::InstanceOf).unwrap();
+        graph.add_relation("weird", "Animal", SemanticRelation::InstanceOf).unwrap();
         
         // Check consistency
         let violations = graph.check_consistency();
