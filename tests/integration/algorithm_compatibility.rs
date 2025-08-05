@@ -146,8 +146,8 @@ fn test_centrality_on_concept_graph() -> Result<()> {
     
     concepts.add_relation(&ml, &ai, SemanticRelation::PartOf)?;
     concepts.add_relation(&dl, &ml, SemanticRelation::SubClassOf)?;
-    concepts.add_relation(&nn, &dl, SemanticRelation::RelatedTo)?;
-    concepts.add_relation(&nn, &ml, SemanticRelation::RelatedTo)?;
+    concepts.add_relation(&nn, &dl, SemanticRelation::Custom)?;
+    concepts.add_relation(&nn, &ml, SemanticRelation::Custom)?;
     
     // Calculate in-degree centrality manually
     let mut in_degrees = HashMap::new();
@@ -258,7 +258,7 @@ fn test_shortest_path_across_composed_graphs() -> Result<()> {
     
     // Note: In practice, composed graphs don't have cross-graph edges,
     // but we can still run algorithms on individual sub-graphs
-    let composed = ComposedGraph::builder()
+    let composed = ComposedGraph::new()
         .add_graph("first", g1)
         .add_graph("second", g2)
         .build()?;
@@ -278,18 +278,19 @@ fn test_cycle_detection_algorithm() -> Result<()> {
     // Test on workflow (allows cycles)
     let mut workflow = WorkflowGraph::new("cycles");
     
-    let s1 = workflow.add_state("s1", json!({}))?;
-    let s2 = workflow.add_state("s2", json!({}))?;
-    let s3 = workflow.add_state("s3", json!({}))?;
+    use cim_graph::graphs::workflow::{WorkflowNode, StateType};
+    let s1 = workflow.add_state(WorkflowNode::new("s1", "State 1", StateType::Initial))?;
+    let s2 = workflow.add_state(WorkflowNode::new("s2", "State 2", StateType::Normal))?;
+    let s3 = workflow.add_state(WorkflowNode::new("s3", "State 3", StateType::Final))?;
     
-    workflow.add_transition(s1, s2, "a", json!({}))?;
-    workflow.add_transition(s2, s3, "b", json!({}))?;
+    workflow.add_transition(&s1, &s2, "a")?;
+    workflow.add_transition(&s2, &s3, "b")?;
     
     // No cycle yet
     assert!(!has_cycle(&workflow)?);
     
     // Add cycle
-    workflow.add_transition(s3, s1, "c", json!({}))?;
+    workflow.add_transition(&s3, &s1, "c")?;
     assert!(has_cycle(&workflow)?);
     
     // Test on IPLD (DAG - no cycles allowed)
@@ -311,13 +312,15 @@ fn test_graph_metrics_calculation() -> Result<()> {
     let mut concept = ConceptGraph::new();
     
     // Create hub-and-spoke pattern
-    let hub = concept.add_concept("Hub", vec![("central", 1.0)])?;
+    let hub = concept.add_concept("Hub", "Hub Concept", serde_json::json!({"central": 1.0}))?;
     
     for i in 0..5 {
-        let spoke = concept.add_concept(&format!("Spoke{}", i), vec![
-            ("peripheral", 1.0)
-        ])?;
-        concept.add_relation(spoke, hub, "connects-to", 0.8)?;
+        let spoke = concept.add_concept(
+            &format!("Spoke{}", i), 
+            &format!("Spoke {} Concept", i),
+            serde_json::json!({"peripheral": 1.0})
+        )?;
+        concept.add_relation(&spoke, &hub, cim_graph::graphs::concept::SemanticRelation::Custom)?;
     }
     
     // Calculate degree centrality

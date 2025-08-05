@@ -242,7 +242,7 @@ fn test_composed_graph_performance() -> Result<()> {
     
     let start = Instant::now();
     
-    let mut builder = ComposedGraph::builder();
+    let mut builder = ComposedGraph::new();
     
     // Create multiple graphs
     for i in 0..graph_count {

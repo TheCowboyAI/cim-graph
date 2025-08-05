@@ -137,8 +137,8 @@ mod workflow_stress {
                 &format!("node_{}", i),
                 &format!("Node {}", i),
                 match i {
-                    0 => StateType::Start,
-                    n if n == size - 1 => StateType::End,
+                    0 => StateType::Initial,
+                    n if n == size - 1 => StateType::Final,
                     _ => StateType::Normal,
                 },
             );

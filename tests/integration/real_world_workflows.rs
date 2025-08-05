@@ -126,7 +126,7 @@ fn test_building_knowledge_graph_from_ipld() -> Result<()> {
     )?;
     
     // Compose graphs for unified view
-    let unified = ComposedGraph::builder()
+    let unified = ComposedGraph::new()
         .add_graph("documents", ipld)
         .add_graph("knowledge", knowledge)
         .build()?;
@@ -219,7 +219,7 @@ fn test_workflow_pipeline_creation() -> Result<()> {
     }
     
     // Compose for complete pipeline view
-    let pipeline = ComposedGraph::builder()
+    let pipeline = ComposedGraph::new()
         .add_graph("workflow", workflow)
         .add_graph("executions", context)
         .build()?;
@@ -279,7 +279,7 @@ fn test_domain_modeling_with_context_graphs() -> Result<()> {
     let reservation = inventory_ctx.add_entity(&reservation_id, "Reservation", stock)?;
     
     // Create domain model
-    let domain_model = ComposedGraph::builder()
+    let domain_model = ComposedGraph::new()
         .add_graph("catalog", catalog_ctx)
         .add_graph("orders", order_ctx)
         .add_graph("inventory", inventory_ctx)
@@ -377,7 +377,7 @@ fn test_event_sourcing_workflow() -> Result<()> {
     let order_aggregate = context.add_aggregate(&order_agg_id, "Order_123", "order_mgmt")?;
     
     // Compose for complete view
-    let event_sourced = ComposedGraph::builder()
+    let event_sourced = ComposedGraph::new()
         .add_graph("events", events)
         .add_graph("workflow", workflow)
         .add_graph("aggregate", context)
@@ -447,7 +447,7 @@ fn test_recommendation_system() -> Result<()> {
     content_features.add_relation("ml-content", "advanced-content", SemanticRelation::Custom)?;
     
     // Compose for recommendation engine
-    let recommender = ComposedGraph::builder()
+    let recommender = ComposedGraph::new()
         .add_graph("content", content)
         .add_graph("user_preferences", user_prefs)
         .add_graph("content_features", content_features)

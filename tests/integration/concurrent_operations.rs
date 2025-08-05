@@ -31,7 +31,7 @@ fn test_concurrent_node_additions() -> Result<()> {
                 let mut g = graph_clone.lock().unwrap();
                 
                 // Add bounded context if this is the first node
-                if g.node_count() == 0 {
+                if g.graph().node_count() == 0 {
                     g.add_bounded_context("concurrent", "Concurrent Test").unwrap();
                 }
                 
@@ -52,7 +52,7 @@ fn test_concurrent_node_additions() -> Result<()> {
     }
     
     let final_graph = graph.lock().unwrap();
-    assert_eq!(final_graph.node_count(), num_threads * nodes_per_thread);
+    assert_eq!(final_graph.graph().node_count(), num_threads * nodes_per_thread);
     
     Ok(())
 }
@@ -104,7 +104,7 @@ fn test_concurrent_graph_composition() -> Result<()> {
     let barrier = Arc::new(Barrier::new(num_threads));
     let mut handles = vec![];
     
-    let composed_builder = Arc::new(std::sync::Mutex::new(ComposedGraph::builder()));
+    let composed_builder = Arc::new(std::sync::Mutex::new(ComposedGraph::new()));
     
     for thread_id in 0..num_threads {
         let builder_clone = Arc::clone(&composed_builder);
@@ -280,7 +280,7 @@ fn test_concurrent_serialization() -> Result<()> {
                 let serialized = serde_json::to_string(&*graph_clone).unwrap();
                 let deserialized: ConceptGraph = serde_json::from_str(&serialized).unwrap();
                 
-                assert_eq!(deserialized.node_count(), graph_clone.node_count());
+                assert_eq!(deserialized.node_count(), graph_clone.graph().node_count());
             }
         });
         
@@ -316,10 +316,9 @@ fn test_concurrent_algorithm_execution() -> Result<()> {
         for j in 1..=3 {
             let target = (i + j) % states.len();
             base_graph.add_transition(
-                states[i],
-                states[target],
-                &format!("t-{}-{}", i, target),
-                json!({ "weight": j as f64 })
+                &states[i],
+                &states[target],
+                &format!("t-{}-{}", i, target)
             ).ok(); // Ignore duplicate edge errors
         }
     }
@@ -387,7 +386,7 @@ fn test_memory_consistency() -> Result<()> {
                 let mut g = graph_clone.lock().unwrap();
                 
                 // Add bounded context if this is the first operation
-                if g.node_count() == 0 {
+                if g.graph().node_count() == 0 {
                     g.add_bounded_context("mixed", "Mixed Operations Test").unwrap();
                 }
                 
@@ -401,7 +400,7 @@ fn test_memory_consistency() -> Result<()> {
                     ).unwrap();
                 } else {
                     // Read current node count
-                    let count = g.node_count();
+                    let count = g.graph().node_count();
                     assert!(count > 0);
                 }
             }
@@ -416,7 +415,7 @@ fn test_memory_consistency() -> Result<()> {
     
     let final_graph = graph.lock().unwrap();
     let expected_nodes = (num_operations / num_threads / 2) * num_threads;
-    assert_eq!(final_graph.node_count(), expected_nodes);
+    assert_eq!(final_graph.graph().node_count(), expected_nodes);
     
     Ok(())
 }

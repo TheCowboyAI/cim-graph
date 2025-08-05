@@ -132,7 +132,7 @@ mod tests {
     fn test_dfs() {
         let mut graph = GraphBuilder::new()
             .graph_type(GraphType::Generic)
-            .build_event::<GenericNode<&'static str>, GenericEdge<f64>>()
+            .build_event()
             .unwrap();
             
         // Create a simple graph
@@ -152,7 +152,7 @@ mod tests {
     fn test_bfs() {
         let mut graph = GraphBuilder::new()
             .graph_type(GraphType::Generic)
-            .build_event::<GenericNode<&'static str>, GenericEdge<f64>>()
+            .build_event()
             .unwrap();
             
         // Create a simple graph

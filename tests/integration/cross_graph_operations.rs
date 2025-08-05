@@ -52,8 +52,8 @@ fn test_converting_between_graph_types() -> Result<()> {
     }
     
     // Verify conversion
-    assert_eq!(new_context.node_count(), ipld.node_count());
-    assert_eq!(new_context.edge_count(), ipld.edge_count());
+    assert_eq!(new_context.graph().node_count(), ipld.graph().node_count());
+    assert_eq!(new_context.graph().edge_count(), ipld.graph().edge_count());
     
     Ok(())
 }
@@ -67,7 +67,7 @@ fn test_composing_multiple_graphs() -> Result<()> {
     let concept = create_test_concept_graph()?;
     
     // Compose them
-    let composed = ComposedGraph::builder()
+    let composed = ComposedGraph::new()
         .add_graph("data", ipld)
         .add_graph("domain", context)
         .add_graph("workflow", workflow)
@@ -127,7 +127,7 @@ fn test_graph_transformations() -> Result<()> {
     }
     
     // Verify transformation
-    assert_eq!(concept.node_count(), workflow.node_count());
+    assert_eq!(concept.graph().node_count(), workflow.graph().node_count());
     
     Ok(())
 }
@@ -197,7 +197,7 @@ fn test_graph_merging() -> Result<()> {
     graph2.add_relationship(customer2, order2, RelationshipType::References)?;
     
     // Merge graphs using composed graph
-    let merged = ComposedGraph::builder()
+    let merged = ComposedGraph::new()
         .add_graph("batch1", graph1)
         .add_graph("batch2", graph2)
         .build()?;
@@ -260,7 +260,7 @@ fn test_graph_projection() -> Result<()> {
         )?;
     }
     
-    assert!(workflow.node_count() > 0);
+    assert!(workflow.graph().node_count() > 0);
     
     Ok(())
 }
@@ -283,7 +283,7 @@ fn test_cross_graph_references() -> Result<()> {
     )?;
     
     // Compose graphs
-    let composed = ComposedGraph::builder()
+    let composed = ComposedGraph::new()
         .add_graph("content", ipld)
         .add_graph("metadata", context)
         .build()?;

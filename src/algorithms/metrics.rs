@@ -171,7 +171,7 @@ mod tests {
     fn test_degree_centrality() {
         let mut graph = GraphBuilder::new()
             .graph_type(GraphType::Generic)
-            .build_event::<GenericNode<&'static str>, GenericEdge<f64>>()
+            .build_event()
             .unwrap();
             
         // Create a star graph: A is connected to B, C, D
@@ -197,7 +197,7 @@ mod tests {
     fn test_clustering_coefficient() {
         let mut graph = GraphBuilder::new()
             .graph_type(GraphType::Generic)
-            .build_event::<GenericNode<&'static str>, GenericEdge<f64>>()
+            .build_event()
             .unwrap();
             
         // Create a triangle: A -> B, A -> C, B -> C
@@ -209,8 +209,11 @@ mod tests {
         graph.add_edge(GenericEdge::new("A", "C", 1.0)).unwrap();
         graph.add_edge(GenericEdge::new("B", "C", 1.0)).unwrap();
         
-        // A's neighbors (B, C) are connected
+        // For directed graph: A has 2 neighbors (B, C)
+        // There's 1 edge between neighbors (B->C)
+        // Max possible edges = 2 * 1 = 2
+        // Coefficient = 1/2 = 0.5
         let coeff = node_clustering_coefficient(&graph, "A").unwrap();
-        assert_eq!(coeff, 1.0);
+        assert_eq!(coeff, 0.5);
     }
 }

@@ -218,9 +218,10 @@ fn test_event_ordering() -> Result<()> {
     workflow.graph_mut().add_handler(collector.clone());
     
     // Perform a series of operations
-    let s1 = workflow.add_state("s1", json!({}))?;
-    let s2 = workflow.add_state("s2", json!({}))?;
-    let s3 = workflow.add_state("s3", json!({}))?;
+    use cim_graph::graphs::workflow::{WorkflowNode, StateType};
+    let s1 = workflow.add_state(WorkflowNode::new("s1", "State 1", StateType::Initial))?;
+    let s2 = workflow.add_state(WorkflowNode::new("s2", "State 2", StateType::Normal))?;
+    let s3 = workflow.add_state(WorkflowNode::new("s3", "State 3", StateType::Final))?;
     
     workflow.add_transition(&s1, &s2, "t1")?;
     workflow.add_transition(&s2, &s3, "t2")?;
@@ -267,7 +268,7 @@ fn test_composed_graph_events() -> Result<()> {
     assert_eq!(context_collector.get_events().len(), 1);
     
     // Compose graphs
-    let composed = ComposedGraph::builder()
+    let composed = ComposedGraph::new()
         .add_graph("ipld", ipld)
         .add_graph("context", context)
         .build()?;

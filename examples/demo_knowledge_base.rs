@@ -4,7 +4,7 @@
 //! using ConceptGraph for semantic relationships.
 
 use cim_graph::graphs::concept::{ConceptGraph, ConceptNode, SemanticRelation};
-use cim_graph::error::Result;
+use cim_graph::{Node, error::Result};
 
 /// A simple knowledge base system
 struct KnowledgeBase {
@@ -40,12 +40,9 @@ impl KnowledgeBase {
             for edge_id in edges {
                 if let Some(edge) = self.graph.graph().get_edge(&edge_id) {
                     if edge.relation == relation {
-                        if let Some(target) = self.graph.graph().get_node(&edge.target) {
-                            if let Some(desc) = target.properties().get("description") {
-                                println!("  - {} ({})", target.label(), desc);
-                            } else {
-                                println!("  - {}", target.label());
-                            }
+                        if let Some(_target) = self.graph.graph().get_node(&edge.target) {
+                            // ConceptNode details are encapsulated, just print the ID
+                            println!("  - {}", edge.target);
                         }
                     }
                 }
@@ -62,7 +59,7 @@ impl KnowledgeBase {
         let indent = "  ".repeat(depth);
         
         if let Some(concept) = self.graph.graph().get_node(concept_id) {
-            println!("{}- {} ({})", indent, concept.label(), concept.id());
+            println!("{}- {}", indent, concept.id());
             
             // Find all children (IsA relationships pointing to this concept)
             if let Ok(edges) = self.graph.graph().edges_from(concept_id) {

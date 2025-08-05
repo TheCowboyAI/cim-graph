@@ -100,13 +100,13 @@ fn domain_graph_examples() -> Result<()> {
     let customer = context.add_aggregate(
         Uuid::new_v4().to_string(),
         "Customer",
-        bc
+        &bc
     )?;
     
     let order = context.add_aggregate(
         Uuid::new_v4().to_string(),
         "Order",
-        bc
+        &bc
     )?;
     
     context.add_relationship(&customer, &order, 
@@ -188,14 +188,14 @@ fn serialization_example() -> Result<()> {
     println!("=== Serialization Example ===");
     
     // Create a graph
-    let mut graph = GraphBuilder::new()
-        .with_metadata("name", serde_json::json!("Example Graph"))
-        .with_metadata("version", serde_json::json!("1.0"))
-        .build();
+    use cim_graph::Graph;
+    let mut graph = cim_graph::core::graph::BasicGraph::<cim_graph::core::node::GenericNode<&str>, cim_graph::core::edge::GenericEdge<()>>::new(
+        cim_graph::core::graph::GraphType::Generic
+    );
     
-    let n1 = graph.add_node(Node::new("Node1", "example"))?;
-    let n2 = graph.add_node(Node::new("Node2", "example"))?;
-    graph.add_edge(n1, n2, Edge::new("connects"))?;
+    let n1 = graph.add_node(cim_graph::core::node::GenericNode::new("Node1", "example"))?;
+    let n2 = graph.add_node(cim_graph::core::node::GenericNode::new("Node2", "example"))?;
+    graph.add_edge(cim_graph::core::edge::GenericEdge::new("edge1", n1.clone(), n2.clone()))?;
     
     // Serialize to JSON
     let json = graph.to_json()?;

@@ -9,7 +9,7 @@
 
 use cim_graph::{
     algorithms::{shortest_path, centrality},
-    core::{EventGraph, GraphEvent},
+    core::{EventGraph, GraphEvent, GenericNode, GenericEdge},
     graphs::{ComposedGraph, ContextGraph, IpldGraph, WorkflowGraph},
     GraphBuilder, Node, Edge, Result, GraphError,
 };
@@ -59,9 +59,9 @@ fn event_driven_example() -> Result<()> {
     });
     
     // Perform operations that emit events
-    let n1 = graph.add_node(Node::new("EventNode1", "event"))?;
-    let n2 = graph.add_node(Node::new("EventNode2", "event"))?;
-    graph.add_edge(n1, n2, Edge::new("triggers"))?;
+    let n1 = graph.add_node(GenericNode::new("EventNode1", "event"))?;
+    let n2 = graph.add_node(GenericNode::new("EventNode2", "event"))?;
+    graph.add_edge(GenericEdge::new("triggers", &n1, &n2))?;
     
     // Access event history
     println!("\nTotal events recorded: {}", graph.events().len());
@@ -98,13 +98,13 @@ fn graph_composition_example() -> Result<()> {
     
     let mut workflow = WorkflowGraph::new("document_workflow");
     let draft = workflow.add_state("Draft", 
-        cim_graph::graphs::workflow::StateType::Start)?;
+        cim_graph::graphs::workflow::StateType::Initial)?;
     let published = workflow.add_state("Published",
-        cim_graph::graphs::workflow::StateType::End)?;
+        cim_graph::graphs::workflow::StateType::Final)?;
     workflow.add_transition(draft, published, "publish", None)?;
     
     // Compose graphs with mappings
-    let composed = ComposedGraph::builder()
+    let composed = ComposedGraph::new()
         .add_graph("storage", ipld)
         .add_graph("domain", context)
         .add_graph("process", workflow)
@@ -148,7 +148,7 @@ fn performance_example() -> Result<()> {
     
     // Batch node creation
     let nodes: Vec<_> = (0..node_count)
-        .map(|i| Node::new(format!("Node{}", i), "benchmark"))
+        .map(|i| GenericNode::new(format!("Node{}", i), "benchmark"))
         .collect();
     
     let node_ids = graph.add_nodes_batch(&nodes)?;
@@ -201,7 +201,7 @@ fn error_handling_example() -> Result<()> {
     }
     
     // Pattern 2: Error context
-    let node = graph.add_node(Node::new("Test", "error_demo"))?;
+    let node = graph.add_node(GenericNode::new("Test", "error_demo"))?;
     let result = graph.get_node(node)
         .ok_or_else(|| GraphError::NodeNotFound(node.to_string()))
         .map(|n| n.data().to_string());
@@ -244,7 +244,7 @@ fn safe_add_edge(graph: &mut impl Graph, from_name: &str, to_name: &str) -> Resu
         .map(|n| n.id())
         .ok_or_else(|| GraphError::NodeNotFound(to_name.to_string()))?;
     
-    graph.add_edge(from, to, Edge::new("safe"))
+    graph.add_edge(GenericEdge::new("safe", &from, &to))
 }
 
 fn transactional_update(graph: &mut impl Graph) -> Result<usize> {
@@ -254,7 +254,7 @@ fn transactional_update(graph: &mut impl Graph) -> Result<usize> {
     // Try to perform multiple operations
     let result: Result<()> = (|| {
         for i in 0..5 {
-            graph.add_node(Node::new(format!("Transaction{}", i), "tx"))?;
+            graph.add_node(GenericNode::new(format!("Transaction{}", i), "tx"))?;
             operations += 1;
             
             // Simulate potential failure

@@ -171,7 +171,7 @@ mod tests {
     fn test_shortest_path() {
         let mut graph = GraphBuilder::new()
             .graph_type(GraphType::Generic)
-            .build_event::<GenericNode<&'static str>, GenericEdge<f64>>()
+            .build_event()
             .unwrap();
             
         // Create a simple graph: A -> B -> C

@@ -283,7 +283,7 @@ fn test_composed_graph_roundtrip() -> Result<()> {
     }))?;
     
     // Create composed graph
-    let original = ComposedGraph::builder()
+    let original = ComposedGraph::new()
         .add_graph("data", ipld)
         .add_graph("domain", context)
         .add_graph("process", workflow)

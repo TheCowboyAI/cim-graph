@@ -76,8 +76,8 @@ impl GraphGenerator<WorkflowGraph> for WorkflowGraphGenerator {
         // Add nodes
         for i in 0..nodes {
             let state_type = match i {
-                0 => StateType::Start,
-                n if n == nodes - 1 => StateType::End,
+                0 => StateType::Initial,
+                n if n == nodes - 1 => StateType::Final,
                 _ => StateType::Normal,
             };
             let node = WorkflowNode::new(
@@ -157,7 +157,7 @@ impl GraphGenerator<WorkflowGraph> for WorkflowGraphGenerator {
             
             GraphPattern::Tree { depth, branching } => {
                 // Create root
-                let root = WorkflowNode::new("root", "Root", StateType::Start);
+                let root = WorkflowNode::new("root", "Root", StateType::Initial);
                 graph.add_state(root).unwrap();
                 
                 // BFS to create tree
@@ -171,7 +171,7 @@ impl GraphGenerator<WorkflowGraph> for WorkflowGraphGenerator {
                             let child = WorkflowNode::new(
                                 &child_id,
                                 &format!("Node {}", node_counter),
-                                if level == depth - 1 { StateType::End } else { StateType::Normal },
+                                if level == depth - 1 { StateType::Final } else { StateType::Normal },
                             );
                             graph.add_state(child).unwrap();
                             graph.add_transition(
@@ -233,7 +233,7 @@ impl GraphGenerator<WorkflowGraph> for WorkflowGraphGenerator {
             PathologicalCase::DeepNesting(depth) => {
                 // Create a very deep linear chain
                 let mut prev = "root".to_string();
-                let root = WorkflowNode::new(&prev, "Root", StateType::Start);
+                let root = WorkflowNode::new(&prev, "Root", StateType::Initial);
                 graph.add_state(root).unwrap();
                 
                 for i in 1..=depth {
@@ -241,7 +241,7 @@ impl GraphGenerator<WorkflowGraph> for WorkflowGraphGenerator {
                     let node = WorkflowNode::new(
                         &current,
                         &format!("Level {}", i),
-                        if i == depth { StateType::End } else { StateType::Normal },
+                        if i == depth { StateType::Final } else { StateType::Normal },
                     );
                     graph.add_state(node).unwrap();
                     graph.add_transition(&prev, &current, &format!("edge_{}", i)).unwrap();
@@ -256,8 +256,8 @@ impl GraphGenerator<WorkflowGraph> for WorkflowGraphGenerator {
                         &format!("chain_{}", i),
                         &format!("Chain {}", i),
                         match i {
-                            0 => StateType::Start,
-                            _ if i == n - 1 => StateType::End,
+                            0 => StateType::Initial,
+                            _ if i == n - 1 => StateType::Final,
                             _ => StateType::Normal,
                         },
                     );
@@ -402,7 +402,7 @@ impl GraphGenerator<ConceptGraph> for ConceptGraphGenerator {
         let relations = vec![
             SemanticRelation::IsA,
             SemanticRelation::PartOf,
-            SemanticRelation::RelatedTo,
+            SemanticRelation::Custom,
             SemanticRelation::DependsOn,
         ];
         
@@ -480,7 +480,7 @@ impl GraphGenerator<ConceptGraph> for ConceptGraphGenerator {
             for j in 0..concepts.len() {
                 if i != j {
                     let relation = if i < j {
-                        SemanticRelation::RelatedTo
+                        SemanticRelation::Custom
                     } else {
                         SemanticRelation::DependsOn
                     };

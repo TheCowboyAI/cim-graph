@@ -34,13 +34,13 @@ impl TaskManager {
         let mut workflow = WorkflowGraph::new();
         
         // Define task states
-        workflow.add_state(WorkflowNode::new("backlog", "Backlog", StateType::Start))?;
+        workflow.add_state(WorkflowNode::new("backlog", "Backlog", StateType::Initial))?;
         workflow.add_state(WorkflowNode::new("todo", "To Do", StateType::Normal))?;
         workflow.add_state(WorkflowNode::new("in_progress", "In Progress", StateType::Normal))?;
         workflow.add_state(WorkflowNode::new("review", "In Review", StateType::Normal))?;
-        workflow.add_state(WorkflowNode::new("done", "Done", StateType::End))?;
+        workflow.add_state(WorkflowNode::new("done", "Done", StateType::Final))?;
         workflow.add_state(WorkflowNode::new("blocked", "Blocked", StateType::Normal))?;
-        workflow.add_state(WorkflowNode::new("cancelled", "Cancelled", StateType::End))?;
+        workflow.add_state(WorkflowNode::new("cancelled", "Cancelled", StateType::Final))?;
         
         // Define transitions
         workflow.add_transition("backlog", "todo", "prioritize")?;

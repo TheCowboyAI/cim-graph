@@ -56,7 +56,7 @@ fn test_invalid_node_references() -> Result<()> {
     let aggregate = context.add_aggregate(
         Uuid::new_v4().to_string(),
         "User",
-        bc
+        &bc
     )?;
     
     // Try to add entity with non-existent parent
@@ -167,7 +167,7 @@ fn test_malformed_data_handling() -> Result<()> {
     let result = context.add_aggregate(
         Uuid::new_v4().to_string(),
         "DeepData",
-        bc
+        &bc
     );
     assert!(result.is_ok());
     
@@ -184,7 +184,7 @@ fn test_malformed_data_handling() -> Result<()> {
     let result = context.add_aggregate(
         Uuid::new_v4().to_string(),
         "LargeData",
-        bc
+        &bc
     );
     assert!(result.is_ok());
     
@@ -202,13 +202,13 @@ fn test_concurrent_modification_simulation() -> Result<()> {
     let user1 = graph.add_aggregate(
         Uuid::new_v4().to_string(),
         "User",
-        bc
+        &bc
     )?;
     
     let user2 = graph.add_aggregate(
         Uuid::new_v4().to_string(),
         "User",
-        bc
+        &bc
     )?;
     
     // Simulate concurrent relationship additions
@@ -241,16 +241,16 @@ fn test_graph_composition_conflicts() -> Result<()> {
     graph1.add_aggregate(
         shared_id.to_string(),
         "Entity",
-        bc1
+        &bc1
     )?;
     graph2.add_aggregate(
         shared_id.to_string(),
         "Entity",
-        bc2
+        &bc2
     )?;
     
     // Compose graphs - should handle ID conflicts
-    let composed = ComposedGraph::builder()
+    let composed = ComposedGraph::new()
         .add_graph("g1", graph1)
         .add_graph("g2", graph2)
         .build()?;
@@ -429,7 +429,7 @@ fn test_recursive_graph_operations() -> Result<()> {
 #[test]
 fn test_memory_stress_scenarios() -> Result<()> {
     // Test with many small graphs
-    let mut composed = ComposedGraph::builder();
+    let mut composed = ComposedGraph::new();
     
     for i in 0..100 {
         let mut small_graph = ContextGraph::new();
@@ -438,7 +438,7 @@ fn test_memory_stress_scenarios() -> Result<()> {
             small_graph.add_aggregate(
                 Uuid::new_v4().to_string(),
                 "Entity",
-                bc
+                &bc
             )?;
         }
         composed = composed.add_graph(&format!("graph-{}", i), small_graph);
