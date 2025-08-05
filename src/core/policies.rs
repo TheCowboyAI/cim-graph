@@ -337,11 +337,9 @@ mod tests {
         
         let mut state_machine = GraphStateMachine::new();
         let mut ipld_chains = HashMap::new();
-        let mut projection_cache = ProjectionCache::new();
         let mut context = PolicyContext {
             state_machine: &mut state_machine,
             ipld_chains: &mut ipld_chains,
-            projection_cache: &mut projection_cache,
             metrics: PolicyMetrics::default(),
         };
         
@@ -369,11 +367,9 @@ mod tests {
         
         let mut state_machine = GraphStateMachine::new();
         let mut ipld_chains = HashMap::new();
-        let mut projection_cache = ProjectionCache::new();
         let mut context = PolicyContext {
             state_machine: &mut state_machine,
             ipld_chains: &mut ipld_chains,
-            projection_cache: &mut projection_cache,
             metrics: PolicyMetrics::default(),
         };
         
@@ -400,11 +396,9 @@ mod tests {
         
         let mut state_machine = GraphStateMachine::new();
         let mut ipld_chains = HashMap::new();
-        let mut projection_cache = ProjectionCache::new();
         let mut context = PolicyContext {
             state_machine: &mut state_machine,
             ipld_chains: &mut ipld_chains,
-            projection_cache: &mut projection_cache,
             metrics: PolicyMetrics::default(),
         };
         

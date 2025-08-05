@@ -98,10 +98,6 @@ harness = false
 name = "graph_algorithms"
 harness = false
 
-[[bench]]
-name = "serialization"
-harness = false
-
 [profile.release]
 opt-level = 3
 lto = true

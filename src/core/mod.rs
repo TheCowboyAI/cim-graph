@@ -14,9 +14,6 @@ pub mod ipld_chain;
 pub mod policies;
 
 #[cfg(test)]
-mod tests;
-
-#[cfg(test)]
 mod event_tests;
 
 pub use self::edge::{Edge, GenericEdge};

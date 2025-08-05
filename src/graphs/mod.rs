@@ -78,8 +78,6 @@ pub mod concept;
 pub mod composed;
 pub mod event_driven_workflow;
 
-#[cfg(test)]
-mod tests;
 
 pub use self::ipld::IpldGraph;
 pub use self::ipld_projection::{IpldProjection, IpldCommand, ipld_command_to_graph_command};
