@@ -83,41 +83,57 @@ pub struct GraphEvent {
 pub enum GraphEventPayload {
     /// Graph was created
     GraphCreated {
+        /// Type of graph being created
         graph_type: GraphType,
+        /// Optional name for the graph
         name: Option<String>,
+        /// Optional description of the graph's purpose
         description: Option<String>,
     },
     
     /// Node was added
     NodeAdded {
+        /// Unique identifier for the node
         node_id: String,
+        /// Type/category of the node
         node_type: String,
+        /// Additional data associated with the node
         data: serde_json::Value,
     },
     
     /// Edge was added
     EdgeAdded {
+        /// Unique identifier for the edge
         edge_id: String,
+        /// ID of the source node
         source_id: String,
+        /// ID of the target node
         target_id: String,
+        /// Type/category of the edge
         edge_type: String,
+        /// Additional data associated with the edge
         data: serde_json::Value,
     },
     
     /// Node was removed
     NodeRemoved {
+        /// ID of the node to remove
         node_id: String,
     },
     
     /// Edge was removed
     EdgeRemoved {
+        /// ID of the edge to remove
         edge_id: String,
     },
     
     /// Metadata updated
     MetadataUpdated {
+        /// Name of the metadata field being updated
         field: String,
+        /// Previous value of the field
         old_value: Option<serde_json::Value>,
+        /// New value of the field
         new_value: Option<serde_json::Value>,
     },
     
@@ -146,9 +162,13 @@ pub trait EventStore {
 /// In-memory event store for testing
 #[derive(Debug, Default)]
 pub struct MemoryEventStore {
+    /// All events in order
     events: Vec<GraphEvent>,
+    /// Events indexed by aggregate ID
     by_aggregate: HashMap<Uuid, Vec<GraphEvent>>,
+    /// Events indexed by correlation ID
     by_correlation: HashMap<Uuid, Vec<GraphEvent>>,
+    /// Events indexed by event ID
     by_event_id: HashMap<Uuid, GraphEvent>,
 }
 
@@ -218,12 +238,19 @@ impl EventStore for MemoryEventStore {
 /// Event-sourced graph aggregate
 #[derive(Debug)]
 pub struct GraphAggregate {
-    id: Uuid,
+    /// Aggregate ID
+    pub id: Uuid,
+    /// Type of graph
     graph_type: GraphType,
+    /// Current version number
     version: u64,
+    /// Number of nodes in the graph
     node_count: usize,
+    /// Number of edges in the graph
     edge_count: usize,
+    /// Optional graph name
     name: Option<String>,
+    /// Optional graph description
     description: Option<String>,
 }
 

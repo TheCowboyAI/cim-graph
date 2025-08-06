@@ -7,7 +7,6 @@
 //! - Everyone sees the same graph morphing as events occur
 
 use cim_graph::core::event_driven::*;
-use cim_graph::core::GraphType;
 use uuid::Uuid;
 use chrono::Utc;
 use std::sync::{Arc, Mutex};

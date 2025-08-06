@@ -13,6 +13,7 @@ use std::sync::{Arc, RwLock};
 use rayon::prelude::*;
 
 /// Index for fast node lookups by various properties
+#[derive(Debug)]
 pub struct NodeIndex<N: Node> {
     /// Index by node ID for O(1) lookup
     by_id: HashMap<String, Arc<N>>,
@@ -26,6 +27,7 @@ pub struct NodeIndex<N: Node> {
 }
 
 impl<N: Node> NodeIndex<N> {
+    /// Create a new node index
     pub fn new() -> Self {
         Self {
             by_id: HashMap::new(),
@@ -71,12 +73,14 @@ impl<N: Node> NodeIndex<N> {
 }
 
 /// Spatial index for geographic/coordinate-based queries
+#[derive(Debug)]
 pub struct SpatialIndex {
     // Simplified R-tree or quadtree implementation
     _tree: BTreeMap<(i32, i32), Vec<String>>,
 }
 
 /// Edge index for fast edge lookups
+#[derive(Debug)]
 pub struct EdgeIndex<E: Edge> {
     /// All edges indexed by source node
     by_source: HashMap<String, Vec<Arc<E>>>,
@@ -89,6 +93,7 @@ pub struct EdgeIndex<E: Edge> {
 }
 
 impl<E: Edge> EdgeIndex<E> {
+    /// Create a new edge index
     pub fn new() -> Self {
         Self {
             by_source: HashMap::with_capacity(1000),
@@ -126,6 +131,7 @@ impl<E: Edge> EdgeIndex<E> {
 }
 
 /// Cache for expensive computations
+#[derive(Debug)]
 pub struct GraphCache {
     /// Cache for shortest path computations
     shortest_paths: RwLock<HashMap<(String, String), Vec<String>>>,
@@ -141,6 +147,7 @@ pub struct GraphCache {
 }
 
 impl GraphCache {
+    /// Create a new graph cache
     pub fn new() -> Self {
         Self {
             shortest_paths: RwLock::new(HashMap::new()),
@@ -186,12 +193,14 @@ impl GraphCache {
 }
 
 /// Memory pool for node allocations
+#[derive(Debug)]
 pub struct NodePool<N> {
     pool: Vec<N>,
     capacity: usize,
 }
 
 impl<N: Default> NodePool<N> {
+    /// Create a new node pool with specified capacity
     pub fn new(capacity: usize) -> Self {
         Self {
             pool: Vec::with_capacity(capacity),
@@ -274,7 +283,9 @@ pub mod parallel {
 
 /// Optimized graph operations
 pub trait OptimizedGraph {
+    /// Node type for this graph
     type Node: Node;
+    /// Edge type for this graph
     type Edge: Edge;
     
     /// Get node with caching
@@ -283,8 +294,10 @@ pub trait OptimizedGraph {
     /// Get edges with indexing
     fn get_edges_indexed(&self, from: &str, to: &str) -> Vec<&Self::Edge>;
     
-    /// Bulk operations for better performance
+    /// Add multiple nodes in a single operation
     fn add_nodes_bulk(&mut self, nodes: Vec<Self::Node>) -> Result<()>;
+    
+    /// Add multiple edges in a single operation
     fn add_edges_bulk(&mut self, edges: Vec<Self::Edge>) -> Result<()>;
 }
 
@@ -294,6 +307,7 @@ pub mod monitoring {
     use std::sync::Mutex;
     
     /// Simple performance counter
+    #[derive(Debug)]
     pub struct PerfCounter {
         #[allow(dead_code)]
         name: String,
@@ -302,6 +316,7 @@ pub mod monitoring {
     }
     
     impl PerfCounter {
+        /// Create a new performance counter
         pub fn new(name: impl Into<String>) -> Self {
             Self {
                 name: name.into(),

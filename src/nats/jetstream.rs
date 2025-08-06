@@ -3,7 +3,7 @@
 //! Provides persistent event storage using NATS JetStream
 
 use crate::error::{GraphError, Result};
-use crate::events::{GraphEvent, EventPayload, build_event_subject, build_graph_subscription, GraphType as SubjectGraphType, EventType};
+use crate::events::{GraphEvent, EventPayload, GraphType as SubjectGraphType, EventType};
 use crate::core::ipld_chain::Cid;
 use async_nats::jetstream::{self, consumer::PullConsumer, stream::Stream};
 use futures::StreamExt;
@@ -17,21 +17,27 @@ use uuid::Uuid;
 /// NATS-specific errors
 #[derive(Debug, thiserror::Error)]
 pub enum NatsError {
+    /// NATS connection failed
     #[error("NATS connection error: {0}")]
     ConnectionError(String),
     
+    /// JetStream operation failed
     #[error("JetStream error: {0}")]
     JetStreamError(String),
     
+    /// Requested stream does not exist
     #[error("Stream not found: {0}")]
     StreamNotFound(String),
     
+    /// Consumer operation failed
     #[error("Consumer error: {0}")]
     ConsumerError(String),
     
+    /// Failed to serialize/deserialize data
     #[error("Serialization error: {0}")]
     SerializationError(String),
     
+    /// Subscription operation failed
     #[error("Subscription error: {0}")]
     SubscriptionError(String),
 }
@@ -109,6 +115,7 @@ struct EventHeaders {
 }
 
 /// JetStream-based event store
+#[derive(Debug)]
 pub struct JetStreamEventStore {
     /// NATS client
     client: async_nats::Client,
@@ -149,7 +156,7 @@ impl JetStreamEventStore {
     
     /// Ensure the stream exists with proper configuration
     async fn ensure_stream(&self) -> Result<()> {
-        let subjects = vec![format!("{}.*.*", self.config.subject_prefix)];
+        let subjects = vec![format!("{}.>", self.config.subject_prefix)];
         
         let mut stream_config = jetstream::stream::Config {
             name: self.config.stream_name.clone(),
@@ -178,8 +185,14 @@ impl JetStreamEventStore {
         // Determine event type and graph type from payload
         let (event_type, graph_type) = determine_event_type(&event.payload);
         
-        // Build subject using cim-subject
-        let subject = build_event_subject(graph_type, event.aggregate_id, event_type);
+        // Build subject using configured prefix
+        let subject = format!(
+            "{}.{}.{}.{}",
+            self.config.subject_prefix,
+            format!("{:?}", graph_type).to_lowercase(),
+            event.aggregate_id,
+            format!("{:?}", event_type).to_lowercase()
+        );
         
         // For compatibility, also store string representations
         let event_type_str = format!("{:?}", event_type).to_lowercase();
@@ -241,7 +254,7 @@ impl JetStreamEventStore {
         
         // Create consumer for this aggregate
         let consumer_name = format!("cim-graph-{}", aggregate_id);
-        let filter_subject = format!("{}.*.{}", self.config.subject_prefix, aggregate_id);
+        let filter_subject = format!("{}.*.{}.*", self.config.subject_prefix, aggregate_id);
         
         let consumer: PullConsumer = stream
             .get_or_create_consumer(&consumer_name, jetstream::consumer::pull::Config {
@@ -254,7 +267,7 @@ impl JetStreamEventStore {
         
         // Fetch all messages
         let mut events = Vec::new();
-        let mut messages = consumer.fetch()
+        let messages = consumer.fetch()
             .max_messages(1000)
             .messages()
             .await
@@ -293,7 +306,7 @@ impl JetStreamEventStore {
             .map_err(|e| NatsError::ConsumerError(e.to_string()))?;
         
         let mut events = Vec::new();
-        let mut messages = consumer.fetch()
+        let messages = consumer.fetch()
             .max_messages(1000)
             .messages()
             .await
@@ -326,7 +339,7 @@ impl JetStreamEventStore {
     /// Subscribe to events for real-time updates
     pub async fn subscribe_to_aggregate(&self, aggregate_id: Uuid) -> Result<EventSubscription> {
         // Use wildcard to subscribe to all event types for this aggregate
-        let filter_subject = build_graph_subscription(SubjectGraphType::Composed, aggregate_id);
+        let filter_subject = format!("{}.*.{}.*", self.config.subject_prefix, aggregate_id);
         
         let subscriber = self.client
             .subscribe(filter_subject)
@@ -345,7 +358,12 @@ impl JetStreamEventStore {
         graph_type: SubjectGraphType,
         aggregate_id: Uuid,
     ) -> Result<EventSubscription> {
-        let filter_subject = build_graph_subscription(graph_type, aggregate_id);
+        let filter_subject = format!(
+            "{}.{}.{}.*",
+            self.config.subject_prefix,
+            format!("{:?}", graph_type).to_lowercase(),
+            aggregate_id
+        );
         
         let subscriber = self.client
             .subscribe(filter_subject)
@@ -389,12 +407,18 @@ impl JetStreamEventStore {
 }
 
 /// Subscription to aggregate events
+#[derive(Debug)]
 pub struct EventSubscription {
     subscriber: async_nats::Subscriber,
     aggregate_id: Uuid,
 }
 
 impl EventSubscription {
+    /// Get the aggregate ID this subscription is for
+    pub fn aggregate_id(&self) -> Uuid {
+        self.aggregate_id
+    }
+    
     /// Get the next event
     pub async fn next(&mut self) -> Result<Option<GraphEvent>> {
         if let Some(message) = self.subscriber.next().await {
@@ -407,6 +431,7 @@ impl EventSubscription {
 }
 
 /// Consumer for replaying events
+#[derive(Debug)]
 pub struct ReplayConsumer {
     consumer: PullConsumer,
 }
@@ -415,7 +440,7 @@ impl ReplayConsumer {
     /// Fetch a batch of events
     pub async fn fetch_batch(&self, max_messages: usize) -> Result<Vec<GraphEvent>> {
         let mut events = Vec::new();
-        let mut messages = self.consumer
+        let messages = self.consumer
             .fetch()
             .max_messages(max_messages)
             .messages()

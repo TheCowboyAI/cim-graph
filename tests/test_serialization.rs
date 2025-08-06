@@ -84,7 +84,7 @@ fn test_ipld_event_serialization() {
 #[test]
 fn test_event_journal() {
     let aggregate_id = Uuid::new_v4();
-    let mut events = Vec::new();
+    let mut events: Vec<GraphEvent> = Vec::new();
     
     // Create a chain of events
     for i in 0..5 {

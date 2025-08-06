@@ -19,6 +19,7 @@ pub trait CommandHandler<P: GraphProjection> {
 }
 
 /// Generic command handler for basic graph operations
+#[derive(Debug)]
 pub struct GenericCommandHandler;
 
 impl<P: GraphProjection> CommandHandler<P> for GenericCommandHandler {
@@ -56,6 +57,7 @@ impl<P: GraphProjection> CommandHandler<P> for GenericCommandHandler {
 }
 
 /// IPLD-specific command handler
+#[derive(Debug)]
 pub struct IpldCommandHandler;
 
 impl<P: GraphProjection> CommandHandler<P> for IpldCommandHandler {
@@ -148,6 +150,7 @@ impl<P: GraphProjection> CommandHandler<P> for IpldCommandHandler {
 }
 
 /// Context graph command handler
+#[derive(Debug)]
 pub struct ContextCommandHandler;
 
 impl<P: GraphProjection> CommandHandler<P> for ContextCommandHandler {
@@ -224,12 +227,14 @@ impl<P: GraphProjection> CommandHandler<P> for ContextCommandHandler {
 }
 
 /// Workflow command handler
+#[derive(Debug)]
 pub struct WorkflowCommandHandler {
     /// Track workflow instances and their current states
     instance_states: HashMap<Uuid, String>,
 }
 
 impl WorkflowCommandHandler {
+    /// Create a new workflow command handler
     pub fn new() -> Self {
         Self {
             instance_states: HashMap::new(),
@@ -305,7 +310,7 @@ impl<P: GraphProjection> CommandHandler<P> for WorkflowCommandHandler {
                             }),
                         });
                     }
-                    WorkflowCommand::TriggerTransition { instance_id, trigger } => {
+                    WorkflowCommand::TriggerTransition { instance_id, trigger: _ } => {
                         // In real implementation, would validate transition is valid
                         // For now, just create a transition event
                         let from_state = self.instance_states
@@ -337,6 +342,7 @@ impl<P: GraphProjection> CommandHandler<P> for WorkflowCommandHandler {
 }
 
 /// Concept graph command handler
+#[derive(Debug)]
 pub struct ConceptCommandHandler;
 
 impl<P: GraphProjection> CommandHandler<P> for ConceptCommandHandler {
@@ -412,10 +418,11 @@ impl<P: GraphProjection> CommandHandler<P> for ConceptCommandHandler {
 }
 
 /// Composed graph command handler
+#[derive(Debug)]
 pub struct ComposedCommandHandler;
 
 impl<P: GraphProjection> CommandHandler<P> for ComposedCommandHandler {
-    fn handle(&self, command: GraphCommand, projection: &P) -> Result<Vec<GraphEvent>> {
+    fn handle(&self, command: GraphCommand, _projection: &P) -> Result<Vec<GraphEvent>> {
         match command {
             GraphCommand::Composed { aggregate_id, correlation_id, command } => {
                 let mut events = Vec::new();

@@ -8,11 +8,11 @@
 //! - Handle real-time subscriptions
 
 use cim_graph::{
-    events::{GraphEvent, EventPayload, GenericPayload, WorkflowPayload,
+    events::{GraphEvent, EventPayload, WorkflowPayload,
              build_event_subject, build_type_subscription, GraphType, EventType},
     nats::{JetStreamEventStore, JetStreamConfig},
     core::{
-        GraphStateMachine, IpldChainAggregate, PolicyEngine, PolicyContext,
+        GraphStateMachine, PolicyEngine, PolicyContext,
     },
     Result,
 };
@@ -200,8 +200,7 @@ async fn main() -> Result<()> {
     println!("\n9. IPLD Chain Summary:");
     if let Some(chain) = ipld_chains.get(&workflow_id) {
         println!("   - Root CID: {}", chain.root_cid);
-        println!("   - Chain length: {}", chain.chain.len());
-        println!("   - Total size: {} bytes", chain.metadata.total_size);
+        println!("   - Chain length: {} events", chain.metadata.length);
         
         // Verify chain integrity
         match chain.verify_chain() {
@@ -239,7 +238,7 @@ async fn main() -> Result<()> {
     println!("   - All workflows: {}", type_sub);
     
     println!("\n   Subject hierarchy:");
-    println!("   - cim.graph.{type}.{id}.{event}");
+    println!("   - cim.graph.{{type}}.{{id}}.{{event}}");
     println!("   - Enables precise event routing");
     println!("   - Supports wildcard subscriptions");
     

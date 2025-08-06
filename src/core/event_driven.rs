@@ -13,31 +13,53 @@ use crate::core::GraphType;
 /// Commands are requests to change state - they may be rejected
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum GraphCommand {
+    /// Create a new graph
     CreateGraph {
+        /// Unique identifier for the graph
         graph_id: Uuid,
+        /// Type of graph to create
         graph_type: GraphType,
+        /// Optional human-readable name
         name: Option<String>,
     },
+    /// Add a node to a graph
     AddNode {
+        /// Graph to add the node to
         graph_id: Uuid,
+        /// Unique identifier for the node
         node_id: String,
+        /// Type/category of the node
         node_type: String,
+        /// Additional node data
         data: serde_json::Value,
     },
+    /// Add an edge between nodes
     AddEdge {
+        /// Graph to add the edge to
         graph_id: Uuid,
+        /// Unique identifier for the edge
         edge_id: String,
+        /// Source node ID
         source_id: String,
+        /// Target node ID
         target_id: String,
+        /// Type/category of the edge
         edge_type: String,
+        /// Additional edge data
         data: serde_json::Value,
     },
+    /// Remove a node from a graph
     RemoveNode {
+        /// Graph to remove the node from
         graph_id: Uuid,
+        /// ID of the node to remove
         node_id: String,
     },
+    /// Remove an edge from a graph
     RemoveEdge {
+        /// Graph to remove the edge from
         graph_id: Uuid,
+        /// ID of the edge to remove
         edge_id: String,
     },
 }
@@ -73,26 +95,43 @@ pub struct GraphEvent {
 /// The event data variants - these are the ONLY ways state can change
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum EventData {
+    /// Graph was created
     GraphCreated {
+        /// Type of graph being created
         graph_type: GraphType,
+        /// Optional name for the graph
         name: Option<String>,
     },
+    /// Node was added to the graph
     NodeAdded {
+        /// Unique identifier for the node
         node_id: String,
+        /// Type/category of the node
         node_type: String,
+        /// Additional node data
         data: serde_json::Value,
     },
+    /// Edge was added to the graph
     EdgeAdded {
+        /// Unique identifier for the edge
         edge_id: String,
+        /// ID of the source node
         source_id: String,
+        /// ID of the target node
         target_id: String,
+        /// Type/category of the edge
         edge_type: String,
+        /// Additional edge data
         data: serde_json::Value,
     },
+    /// Node was removed from the graph
     NodeRemoved {
+        /// ID of the node that was removed
         node_id: String,
     },
+    /// Edge was removed from the graph
     EdgeRemoved {
+        /// ID of the edge that was removed
         edge_id: String,
     },
 }
@@ -101,30 +140,49 @@ pub enum EventData {
 /// This is READ-ONLY - it cannot be modified directly
 #[derive(Debug)]
 pub struct GraphProjection {
+    /// Aggregate ID this projection belongs to
     pub aggregate_id: Uuid,
+    /// Type of graph
     pub graph_type: GraphType,
+    /// Current version (sequence number of last applied event)
     pub version: u64,
+    /// All nodes in the graph indexed by node ID
     pub nodes: std::collections::HashMap<String, NodeProjection>,
+    /// All edges in the graph indexed by edge ID
     pub edges: std::collections::HashMap<String, EdgeProjection>,
 }
 
+/// Node projection - represents a node in the graph
 #[derive(Debug, Clone)]
 pub struct NodeProjection {
+    /// Unique identifier for the node
     pub node_id: String,
+    /// Type/category of the node
     pub node_type: String,
+    /// Additional node data
     pub data: serde_json::Value,
+    /// When the node was created
     pub created_at: DateTime<Utc>,
+    /// Event ID that created this node
     pub created_by_event: Uuid,
 }
 
+/// Edge projection - represents an edge in the graph
 #[derive(Debug, Clone)]
 pub struct EdgeProjection {
+    /// Unique identifier for the edge
     pub edge_id: String,
+    /// ID of the source node
     pub source_id: String,
+    /// ID of the target node
     pub target_id: String,
+    /// Type/category of the edge
     pub edge_type: String,
+    /// Additional edge data
     pub data: serde_json::Value,
+    /// When the edge was created
     pub created_at: DateTime<Utc>,
+    /// Event ID that created this edge
     pub created_by_event: Uuid,
 }
 

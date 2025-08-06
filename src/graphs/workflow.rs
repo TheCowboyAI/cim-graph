@@ -15,11 +15,22 @@ pub type WorkflowProjection = WorkflowGraph;
 /// Workflow state enumeration
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum WorkflowState {
+    /// Workflow is being designed
     Draft,
+    /// Workflow is published and ready to execute
     Published,
-    Running { current_state: String },
+    /// Workflow is currently executing
+    Running { 
+        /// Current state in the workflow execution
+        current_state: String 
+    },
+    /// Workflow has completed successfully
     Completed,
-    Failed { error: String },
+    /// Workflow execution failed
+    Failed { 
+        /// Error message describing the failure
+        error: String 
+    },
 }
 
 /// Type of workflow node
@@ -30,23 +41,42 @@ pub enum WorkflowNodeType {
     /// End state
     End,
     /// State in the workflow
-    State { name: String },
+    State { 
+        /// Name of the state
+        name: String 
+    },
     /// Decision point
-    Decision { condition: String },
+    Decision { 
+        /// Condition expression to evaluate
+        condition: String 
+    },
     /// Action to perform
-    Action { operation: String },
+    Action { 
+        /// Operation to execute
+        operation: String 
+    },
     /// Wait for external event
-    Wait { event_type: String },
+    Wait { 
+        /// Type of event to wait for
+        event_type: String 
+    },
     /// Error state
-    Error { message: String },
+    Error { 
+        /// Error message
+        message: String 
+    },
 }
 
 /// Workflow node represents a state or action in a state machine
 #[derive(Debug, Clone)]
 pub struct WorkflowNode {
+    /// Unique identifier for the node
     pub id: String,
+    /// Type of workflow node
     pub node_type: WorkflowNodeType,
+    /// Additional metadata for the node
     pub metadata: HashMap<String, serde_json::Value>,
+    /// Current state of the workflow
     pub workflow_state: WorkflowState,
 }
 
@@ -109,23 +139,38 @@ pub enum WorkflowEdgeType {
     /// Normal transition
     Transition,
     /// Conditional transition
-    ConditionalTransition { condition: String },
+    ConditionalTransition { 
+        /// Condition that must be true for transition
+        condition: String 
+    },
     /// Error transition
     ErrorTransition,
     /// Timeout transition
-    TimeoutTransition { timeout_ms: u64 },
+    TimeoutTransition { 
+        /// Timeout duration in milliseconds
+        timeout_ms: u64 
+    },
     /// Event-triggered transition
-    EventTransition { event_type: String },
+    EventTransition { 
+        /// Type of event that triggers this transition
+        event_type: String 
+    },
 }
 
 /// Workflow edge represents a transition between states
 #[derive(Debug, Clone)]
 pub struct WorkflowEdge {
+    /// Unique identifier for the edge
     pub id: String,
+    /// Source node ID
     pub source: String,
+    /// Target node ID
     pub target: String,
+    /// Type of transition
     pub edge_type: WorkflowEdgeType,
+    /// Additional metadata for the edge
     pub metadata: HashMap<String, serde_json::Value>,
+    /// Optional trigger name for the transition
     pub trigger: Option<String>,
 }
 

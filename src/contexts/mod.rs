@@ -7,7 +7,6 @@
 //! - Concept Context: Domain knowledge and reasoning
 //! - Composed Context: Multi-graph orchestration
 
-use uuid::Uuid;
 
 /// Represents a bounded context in the system
 #[derive(Debug, Clone, PartialEq)]
@@ -96,9 +95,13 @@ impl BoundedContext {
 /// Represents a relationship between contexts
 #[derive(Debug, Clone)]
 pub struct ContextRelationship {
+    /// Source context in the relationship
     pub from_context: BoundedContext,
+    /// Target context in the relationship
     pub to_context: BoundedContext,
+    /// Type of relationship between contexts
     pub relationship_type: RelationshipType,
+    /// Human-readable description of the relationship
     pub description: String,
 }
 
@@ -118,6 +121,7 @@ pub enum RelationshipType {
 }
 
 /// Context map showing all relationships
+#[derive(Debug)]
 pub struct ContextMap {
     relationships: Vec<ContextRelationship>,
 }
@@ -223,13 +227,18 @@ pub mod integration {
     use super::*;
     
     /// Cross-context event flow
+    #[derive(Debug)]
     pub struct EventFlow {
+        /// Context where events originate
         pub source_context: BoundedContext,
+        /// Context that receives events
         pub target_context: BoundedContext,
+        /// Pattern describing the event flow
         pub event_pattern: String,
     }
     
     /// Common integration patterns
+    /// Creates a workflow validation event flow pattern
     pub fn workflow_validation_pattern() -> EventFlow {
         EventFlow {
             source_context: BoundedContext::Workflow,
@@ -238,6 +247,7 @@ pub mod integration {
         }
     }
     
+    /// Creates a concept reasoning event flow pattern
     pub fn concept_reasoning_pattern() -> EventFlow {
         EventFlow {
             source_context: BoundedContext::Concept,
@@ -246,6 +256,7 @@ pub mod integration {
         }
     }
     
+    /// Creates a composed orchestration event flow pattern
     pub fn composed_orchestration_pattern() -> EventFlow {
         EventFlow {
             source_context: BoundedContext::Composed,
@@ -254,6 +265,7 @@ pub mod integration {
         }
     }
     
+    /// Creates an IPLD storage event flow pattern
     pub fn ipld_storage_pattern() -> EventFlow {
         EventFlow {
             source_context: BoundedContext::Workflow,

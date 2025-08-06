@@ -4,7 +4,6 @@
 
 use crate::core::ipld_chain::{IpldChainAggregate, Cid, generate_cid_for_payload};
 use crate::core::state_machine::GraphStateMachine;
-use crate::core::GraphProjection;
 use crate::events::{GraphEvent, EventPayload};
 use crate::error::Result;
 use std::collections::HashMap;
@@ -22,13 +21,28 @@ pub struct PolicyContext<'a> {
     pub metrics: PolicyMetrics,
 }
 
+impl<'a> std::fmt::Debug for PolicyContext<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PolicyContext")
+            .field("state_machine", &"<mutable reference>")
+            .field("ipld_chains", &self.ipld_chains.len())
+            .field("metrics", &self.metrics)
+            .finish()
+    }
+}
+
 /// Metrics for policy execution
 #[derive(Debug, Default, Clone)]
 pub struct PolicyMetrics {
+    /// Number of CIDs generated
     pub cids_generated: usize,
+    /// Number of projections updated
     pub projections_updated: usize,
+    /// Number of chains validated
     pub chains_validated: usize,
+    /// Number of errors caught and handled
     pub errors_caught: usize,
+    /// Number of events replayed
     pub events_replayed: usize,
 }
 
@@ -41,32 +55,55 @@ pub trait Policy: Send + Sync {
     fn should_trigger(&self, event: &GraphEvent) -> bool;
     
     /// Execute the policy
-    fn execute(&self, event: &GraphEvent, context: &mut PolicyContext) -> Result<Vec<PolicyAction>>;
+    fn execute(&self, event: &GraphEvent, context: &mut PolicyContext<'_>) -> Result<Vec<PolicyAction>>;
 }
 
 /// Actions that policies can take
 #[derive(Debug, Clone)]
 pub enum PolicyAction {
     /// Generate and store CID for event
-    GenerateCid { event_id: Uuid, cid: Cid },
+    GenerateCid { 
+        /// ID of the event to generate CID for
+        event_id: Uuid, 
+        /// Generated CID
+        cid: Cid 
+    },
     
     /// Update projection for aggregate
-    UpdateProjection { aggregate_id: Uuid },
+    UpdateProjection { 
+        /// ID of the aggregate to update projection for
+        aggregate_id: Uuid 
+    },
     
     /// Validate state transition
-    ValidateTransition { aggregate_id: Uuid },
+    ValidateTransition { 
+        /// ID of the aggregate to validate
+        aggregate_id: Uuid 
+    },
     
     /// Verify chain integrity
-    VerifyChain { aggregate_id: Uuid },
+    VerifyChain { 
+        /// ID of the aggregate chain to verify
+        aggregate_id: Uuid 
+    },
     
     /// Invalidate cache entry
-    InvalidateCache { aggregate_id: Uuid },
+    InvalidateCache { 
+        /// ID of the aggregate to invalidate cache for
+        aggregate_id: Uuid 
+    },
     
     /// Replay events from sequence
-    ReplayEvents { aggregate_id: Uuid, from_sequence: u64 },
+    ReplayEvents { 
+        /// ID of the aggregate to replay events for
+        aggregate_id: Uuid, 
+        /// Starting sequence number
+        from_sequence: u64 
+    },
 }
 
 /// CID Generation Policy - generates CIDs for all events
+#[derive(Debug)]
 pub struct CidGenerationPolicy;
 
 impl Policy for CidGenerationPolicy {
@@ -79,7 +116,7 @@ impl Policy for CidGenerationPolicy {
         true
     }
     
-    fn execute(&self, event: &GraphEvent, context: &mut PolicyContext) -> Result<Vec<PolicyAction>> {
+    fn execute(&self, event: &GraphEvent, context: &mut PolicyContext<'_>) -> Result<Vec<PolicyAction>> {
         // Generate CID from event payload
         let payload_json = serde_json::to_value(&event.payload)?;
         let cid = generate_cid_for_payload(&payload_json)?;
@@ -103,6 +140,7 @@ impl Policy for CidGenerationPolicy {
 }
 
 /// Projection Update Policy - updates projections when events are published
+#[derive(Debug)]
 pub struct ProjectionUpdatePolicy;
 
 impl Policy for ProjectionUpdatePolicy {
@@ -115,7 +153,7 @@ impl Policy for ProjectionUpdatePolicy {
         true
     }
     
-    fn execute(&self, event: &GraphEvent, context: &mut PolicyContext) -> Result<Vec<PolicyAction>> {
+    fn execute(&self, event: &GraphEvent, context: &mut PolicyContext<'_>) -> Result<Vec<PolicyAction>> {
         let mut actions = vec![];
         
         // Update projection for this aggregate
@@ -135,6 +173,7 @@ impl Policy for ProjectionUpdatePolicy {
 }
 
 /// State Validation Policy - validates state transitions
+#[derive(Debug)]
 pub struct StateValidationPolicy;
 
 impl Policy for StateValidationPolicy {
@@ -151,7 +190,7 @@ impl Policy for StateValidationPolicy {
         )
     }
     
-    fn execute(&self, event: &GraphEvent, context: &mut PolicyContext) -> Result<Vec<PolicyAction>> {
+    fn execute(&self, event: &GraphEvent, context: &mut PolicyContext<'_>) -> Result<Vec<PolicyAction>> {
         // Apply event to state machine
         context.state_machine.apply_event(event);
         
@@ -162,6 +201,7 @@ impl Policy for StateValidationPolicy {
 }
 
 /// Chain Validation Policy - validates IPLD chain integrity
+#[derive(Debug)]
 pub struct ChainValidationPolicy;
 
 impl Policy for ChainValidationPolicy {
@@ -178,7 +218,7 @@ impl Policy for ChainValidationPolicy {
         }
     }
     
-    fn execute(&self, event: &GraphEvent, context: &mut PolicyContext) -> Result<Vec<PolicyAction>> {
+    fn execute(&self, event: &GraphEvent, context: &mut PolicyContext<'_>) -> Result<Vec<PolicyAction>> {
         if let Some(chain) = context.ipld_chains.get(&event.aggregate_id) {
             // Verify chain integrity
             match chain.verify_chain() {
@@ -200,6 +240,7 @@ impl Policy for ChainValidationPolicy {
 }
 
 /// Collaboration Policy - handles client subscriptions and event replay
+#[derive(Debug)]
 pub struct CollaborationPolicy;
 
 impl Policy for CollaborationPolicy {
@@ -215,7 +256,7 @@ impl Policy for CollaborationPolicy {
         )
     }
     
-    fn execute(&self, event: &GraphEvent, context: &mut PolicyContext) -> Result<Vec<PolicyAction>> {
+    fn execute(&self, event: &GraphEvent, context: &mut PolicyContext<'_>) -> Result<Vec<PolicyAction>> {
         // Extract client's last known sequence from event
         let last_sequence = event.payload
             .as_generic()
@@ -236,6 +277,15 @@ impl Policy for CollaborationPolicy {
 pub struct PolicyEngine {
     policies: Vec<Box<dyn Policy>>,
     metrics: PolicyMetrics,
+}
+
+impl std::fmt::Debug for PolicyEngine {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PolicyEngine")
+            .field("policies", &self.policies.len())
+            .field("metrics", &self.metrics)
+            .finish()
+    }
 }
 
 impl PolicyEngine {
@@ -262,7 +312,7 @@ impl PolicyEngine {
     pub fn execute_policies(
         &mut self,
         event: &GraphEvent,
-        context: &mut PolicyContext,
+        context: &mut PolicyContext<'_>,
     ) -> Result<Vec<PolicyAction>> {
         let mut all_actions = Vec::new();
         
@@ -309,7 +359,7 @@ impl EventPayload {
 pub fn process_event_policies(
     event: &GraphEvent,
     engine: &mut PolicyEngine,
-    context: &mut PolicyContext,
+    context: &mut PolicyContext<'_>,
 ) -> Result<Vec<PolicyAction>> {
     engine.execute_policies(event, context)
 }

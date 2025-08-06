@@ -111,6 +111,7 @@ impl<N: Node, E: Edge> GraphProjection for GenericGraphProjection<N, E> {
 }
 
 /// Engine for building and updating projections from events
+#[derive(Debug)]
 pub struct ProjectionEngine<P: GraphProjection> {
     projection_type: std::marker::PhantomData<P>,
 }
@@ -135,7 +136,7 @@ impl<N: Node, E: Edge> ProjectionEngine<GenericGraphProjection<N, E>>
         
         // Get aggregate ID from first event
         let aggregate_id = events[0].aggregate_id;
-        let mut graph_type = GraphType::Generic;
+        let graph_type = GraphType::Generic;
         
         // Initialize empty projection
         let mut projection = GenericGraphProjection::new(aggregate_id, graph_type);
@@ -179,15 +180,37 @@ impl<N: Node, E: Edge> ProjectionEngine<GenericGraphProjection<N, E>>
             }
             
             EventData::NodeAdded { node_id, node_type, data } => {
-                // Just update adjacency - specific graph types handle node creation
+                // Generic projection doesn't create typed nodes
+                // Specific graph types (WorkflowNode, ConceptNode, etc.) handle their own node creation
+                // Here we just track the node exists for adjacency purposes
                 projection.adjacency.insert(node_id.clone(), Vec::new());
+                
+                // Store metadata about the node for later use
+                projection.metadata.properties.insert(
+                    format!("node_{}", node_id),
+                    serde_json::json!({
+                        "type": node_type,
+                        "data": data
+                    })
+                );
             }
             
             EventData::EdgeAdded { edge_id, source_id, target_id, edge_type, data } => {
-                // Just update adjacency - specific graph types handle edge creation
+                // Update adjacency list
                 if let Some(adj) = projection.adjacency.get_mut(source_id) {
                     adj.push(target_id.clone());
                 }
+                
+                // Store edge metadata for later use
+                projection.metadata.properties.insert(
+                    format!("edge_{}", edge_id),
+                    serde_json::json!({
+                        "source": source_id,
+                        "target": target_id,
+                        "type": edge_type,
+                        "data": data
+                    })
+                );
             }
             
             EventData::NodeRemoved { node_id } => {
@@ -221,19 +244,38 @@ impl<N: Node, E: Edge> ProjectionEngine<GenericGraphProjection<N, E>>
             }
             
             EventData::NodeUpdated { node_id, data } => {
-                // In real implementation, would update node data
-                // For now, nodes are immutable after creation
+                // Update node metadata
+                projection.metadata.properties.insert(
+                    format!("node_{}_updated", node_id),
+                    data.clone()
+                );
+                
+                // Update timestamp to track when node was last modified
+                projection.metadata.properties.insert(
+                    format!("node_{}_updated_at", node_id),
+                    serde_json::json!(event.timestamp.to_rfc3339())
+                );
             }
             
             EventData::EdgeUpdated { edge_id, data } => {
-                // In real implementation, would update edge data  
-                // For now, edges are immutable after creation
+                // Update edge metadata
+                projection.metadata.properties.insert(
+                    format!("edge_{}_updated", edge_id),
+                    data.clone()
+                );
+                
+                // Update timestamp to track when edge was last modified
+                projection.metadata.properties.insert(
+                    format!("edge_{}_updated_at", edge_id),
+                    serde_json::json!(event.timestamp.to_rfc3339())
+                );
             }
         }
     }
 }
 
 /// Projection cache for performance
+#[derive(Debug)]
 pub struct ProjectionCache<P: GraphProjection> {
     projections: HashMap<Uuid, P>,
     max_size: usize,

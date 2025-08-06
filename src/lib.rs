@@ -103,6 +103,12 @@ pub mod contexts;
 #[cfg_attr(docsrs, doc(cfg(feature = "nats")))]
 pub mod nats;
 
+/// Event stream optimization utilities
+pub mod optimization;
+
+/// Event analytics and metrics
+pub mod analytics;
+
 // Re-exports
 pub use crate::core::{Node, Edge, EventHandler, GraphEvent as CoreGraphEvent, GraphProjection};
 pub use crate::error::{GraphError, Result};

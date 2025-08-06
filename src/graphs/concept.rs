@@ -32,11 +32,17 @@ pub enum ConceptNodeType {
 /// Concept node represents semantic knowledge
 #[derive(Debug, Clone)]
 pub struct ConceptNode {
+    /// Unique identifier for the node
     pub id: String,
+    /// Human-readable name of the concept
     pub name: String,
+    /// Type of concept node
     pub node_type: ConceptNodeType,
+    /// Optional description of the concept
     pub description: Option<String>,
+    /// Properties defining the concept
     pub properties: HashMap<String, serde_json::Value>,
+    /// Additional metadata
     pub metadata: HashMap<String, serde_json::Value>,
 }
 
@@ -138,11 +144,17 @@ pub enum RelationType {
 /// Concept edge represents semantic relationships
 #[derive(Debug, Clone)]
 pub struct ConceptEdge {
+    /// Unique identifier for the edge
     pub id: String,
+    /// Source concept ID
     pub source: String,
+    /// Target concept ID
     pub target: String,
+    /// Type of semantic relationship
     pub relation_type: RelationType,
-    pub strength: f32, // 0.0 to 1.0
+    /// Strength of the relationship (0.0 to 1.0)
+    pub strength: f32,
+    /// Additional metadata
     pub metadata: HashMap<String, serde_json::Value>,
 }
 

@@ -1,0 +1,120 @@
+{
+  "metadata": {
+    "version": "1.0.0",
+    "event_count": 7,
+    "first_event_time": null,
+    "last_event_time": null,
+    "aggregate_ids": [
+      "106f7673-0aa3-4311-8c67-2f69be0ebad9",
+      "a804d999-6274-4d1e-9a29-753aad12aaca"
+    ]
+  },
+  "events": [
+    {
+      "event_id": "80eb2cd0-127f-4f14-b25f-7e6a99c157c0",
+      "aggregate_id": "106f7673-0aa3-4311-8c67-2f69be0ebad9",
+      "correlation_id": "be54ecce-5033-4d61-b10d-77cca280f04d",
+      "causation_id": null,
+      "payload": {
+        "Workflow": {
+          "WorkflowDefined": {
+            "workflow_id": "106f7673-0aa3-4311-8c67-2f69be0ebad9",
+            "name": "Order Processing",
+            "version": "1.0.0"
+          }
+        }
+      }
+    },
+    {
+      "event_id": "3be9888c-2e17-42f9-9664-abb800d39a87",
+      "aggregate_id": "106f7673-0aa3-4311-8c67-2f69be0ebad9",
+      "correlation_id": "be54ecce-5033-4d61-b10d-77cca280f04d",
+      "causation_id": null,
+      "payload": {
+        "Workflow": {
+          "StateAdded": {
+            "workflow_id": "106f7673-0aa3-4311-8c67-2f69be0ebad9",
+            "state_id": "new",
+            "state_type": "initial"
+          }
+        }
+      }
+    },
+    {
+      "event_id": "8561a099-f819-475a-958a-87e4f3ca7f21",
+      "aggregate_id": "106f7673-0aa3-4311-8c67-2f69be0ebad9",
+      "correlation_id": "be54ecce-5033-4d61-b10d-77cca280f04d",
+      "causation_id": null,
+      "payload": {
+        "Workflow": {
+          "StateAdded": {
+            "workflow_id": "106f7673-0aa3-4311-8c67-2f69be0ebad9",
+            "state_id": "processing",
+            "state_type": "normal"
+          }
+        }
+      }
+    },
+    {
+      "event_id": "d1041899-5487-4f25-90d4-37644d2712d6",
+      "aggregate_id": "106f7673-0aa3-4311-8c67-2f69be0ebad9",
+      "correlation_id": "be54ecce-5033-4d61-b10d-77cca280f04d",
+      "causation_id": null,
+      "payload": {
+        "Workflow": {
+          "StateAdded": {
+            "workflow_id": "106f7673-0aa3-4311-8c67-2f69be0ebad9",
+            "state_id": "shipped",
+            "state_type": "final"
+          }
+        }
+      }
+    },
+    {
+      "event_id": "fd69d877-9c8b-4820-b2af-ab53e22c3f7c",
+      "aggregate_id": "a804d999-6274-4d1e-9a29-753aad12aaca",
+      "correlation_id": "24e45608-3bc7-44ad-9003-9db4608e5177",
+      "causation_id": null,
+      "payload": {
+        "Concept": {
+          "ConceptDefined": {
+            "concept_id": "order",
+            "name": "Order",
+            "definition": "A customer order in the system"
+          }
+        }
+      }
+    },
+    {
+      "event_id": "ecb0d0fb-f09b-4072-a331-cff4ecc7070e",
+      "aggregate_id": "a804d999-6274-4d1e-9a29-753aad12aaca",
+      "correlation_id": "24e45608-3bc7-44ad-9003-9db4608e5177",
+      "causation_id": null,
+      "payload": {
+        "Concept": {
+          "ConceptDefined": {
+            "concept_id": "customer",
+            "name": "Customer",
+            "definition": "A customer who places orders"
+          }
+        }
+      }
+    },
+    {
+      "event_id": "c0fc19bb-bd34-472b-8c18-2c127b7fa7a2",
+      "aggregate_id": "a804d999-6274-4d1e-9a29-753aad12aaca",
+      "correlation_id": "24e45608-3bc7-44ad-9003-9db4608e5177",
+      "causation_id": null,
+      "payload": {
+        "Concept": {
+          "RelationAdded": {
+            "source_concept": "order",
+            "target_concept": "customer",
+            "relation_type": "placed_by",
+            "strength": 1.0
+          }
+        }
+      }
+    }
+  ]
+}

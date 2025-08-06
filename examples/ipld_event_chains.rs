@@ -6,8 +6,8 @@
 //! - Entire aggregate transactions can be referenced by a single CID
 //! - Event streams can be retrieved from JetStream with one CID request
 
-use cim_graph::graphs::{Cid, CidChain, EventChainBuilder, CidGenerator};
-use cim_graph::core::{CimGraphEvent, EventData, GraphCommand};
+use cim_graph::graphs::{Cid, EventChainBuilder, CidGenerator};
+use cim_graph::core::{CimGraphEvent, EventData};
 use uuid::Uuid;
 use chrono::Utc;
 use std::collections::HashMap;
@@ -42,7 +42,7 @@ fn main() {
     
     // Create CID generator (would use cim-ipld in production)
     let cid_gen = ExampleCidGenerator;
-    let chain_builder = EventChainBuilder::new(cid_gen);
+    let mut chain_builder = EventChainBuilder::new(cid_gen);
     
     // Simulate an aggregate's event stream
     let aggregate_id = Uuid::new_v4();
@@ -196,6 +196,3 @@ fn main() {
     println!("   NATS JetStream → Persists events with CID indexing");
     println!("\n   Result: Complete event history retrievable by single CID!");
 }
-
-// Type alias for clarity
-type CimGraphEvent = cim_graph::core::CimGraphEvent;

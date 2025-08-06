@@ -15,20 +15,29 @@ pub enum GraphState {
     /// Graph does not exist yet
     Uninitialized,
     /// Graph has been initialized with a type
-    Initialized { graph_type: String },
+    Initialized { 
+        /// Type of graph that was initialized
+        graph_type: String 
+    },
     /// Graph is active with nodes and edges
-    Active { nodes: usize, edges: usize },
+    Active { 
+        /// Number of nodes in the graph
+        nodes: usize, 
+        /// Number of edges in the graph
+        edges: usize 
+    },
     /// Graph has been archived
     Archived,
 }
 
 /// State machine for graph aggregates
+#[derive(Debug)]
 pub struct GraphStateMachine {
     /// Valid states for each graph type
-    valid_states: HashMap<String, Vec<String>>,
+    pub valid_states: HashMap<String, Vec<String>>,
     
     /// Valid transitions: (graph_type, from_state, to_state) -> allowed
-    valid_transitions: HashMap<(String, String, String), bool>,
+    pub valid_transitions: HashMap<(String, String, String), bool>,
     
     /// Current aggregate states (aggregate_id -> GraphState)
     aggregate_states: HashMap<Uuid, GraphState>,
@@ -99,7 +108,7 @@ impl GraphStateMachine {
     pub fn validate_command(
         &self,
         command: &GraphCommand,
-        projection: &GraphAggregateProjection,
+        _projection: &GraphAggregateProjection,
     ) -> Result<()> {
         let aggregate_id = command.aggregate_id();
         let current_state = self.get_state(&aggregate_id);
@@ -114,7 +123,7 @@ impl GraphStateMachine {
             // Initialized state transitions
             (GraphState::Initialized { .. }, command) => {
                 match command {
-                    GraphCommand::Generic { command, data, .. } => {
+                    GraphCommand::Generic { command, .. } => {
                         // Check if this is an AddNode command
                         if command == "AddNode" {
                             Ok(())
@@ -198,7 +207,7 @@ impl GraphStateMachine {
             }
             
             // Initialized + first node
-            (GraphState::Initialized { graph_type }, EventPayload::Generic(generic)) 
+            (GraphState::Initialized { graph_type: _ }, EventPayload::Generic(generic)) 
                 if generic.event_type == "NodeAdded" => {
                 GraphState::Active { nodes: 1, edges: 0 }
             }
@@ -354,11 +363,22 @@ impl GraphStateMachine {
 /// Workflow-specific state machine
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum WorkflowState {
+    /// Workflow is being designed
     Draft,
+    /// Workflow has been published and is ready to run
     Published,
-    Running { current_state: String },
+    /// Workflow is currently executing
+    Running { 
+        /// Current state in the workflow execution
+        current_state: String 
+    },
+    /// Workflow has completed successfully
     Completed,
-    Failed { error: String },
+    /// Workflow has failed
+    Failed { 
+        /// Error message describing the failure
+        error: String 
+    },
 }
 
 impl WorkflowState {

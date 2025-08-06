@@ -81,45 +81,61 @@ pub struct GraphEvent {
 pub enum EventData {
     /// Graph initialized
     GraphInitialized {
+        /// Type of graph (e.g., "workflow", "ipld", "composed")
         graph_type: String,
+        /// Initial metadata for the graph
         metadata: HashMap<String, serde_json::Value>,
     },
     
     /// Node added to graph
     NodeAdded {
+        /// Unique identifier for the node
         node_id: String,
+        /// Type/category of the node
         node_type: String,
+        /// Additional node data
         data: serde_json::Value,
     },
     
     /// Edge added between nodes
     EdgeAdded {
+        /// Unique identifier for the edge
         edge_id: String,
+        /// ID of the source node
         source_id: String,
+        /// ID of the target node
         target_id: String,
+        /// Type/category of the edge
         edge_type: String,
+        /// Additional edge data
         data: serde_json::Value,
     },
     
     /// Node removed
     NodeRemoved {
+        /// ID of the node to remove
         node_id: String,
     },
     
     /// Edge removed
     EdgeRemoved {
+        /// ID of the edge to remove
         edge_id: String,
     },
     
     /// Node data updated
     NodeUpdated {
+        /// ID of the node to update
         node_id: String,
+        /// New data for the node
         data: serde_json::Value,
     },
     
     /// Edge data updated
     EdgeUpdated {
+        /// ID of the edge to update
         edge_id: String,
+        /// New data for the edge
         data: serde_json::Value,
     },
 }
@@ -129,38 +145,55 @@ pub enum EventData {
 pub enum GraphCommand {
     /// Initialize a new graph
     InitializeGraph {
+        /// Aggregate ID for the graph
         aggregate_id: Uuid,
+        /// Type of graph to create
         graph_type: String,
+        /// Initial metadata for the graph
         metadata: HashMap<String, serde_json::Value>,
     },
     
     /// Add a node
     AddNode {
+        /// Graph aggregate ID
         aggregate_id: Uuid,
+        /// Unique identifier for the node
         node_id: String,
+        /// Type/category of the node
         node_type: String,
+        /// Additional node data
         data: serde_json::Value,
     },
     
     /// Add an edge
     AddEdge {
+        /// Graph aggregate ID
         aggregate_id: Uuid,
+        /// Unique identifier for the edge
         edge_id: String,
+        /// ID of the source node
         source_id: String,
+        /// ID of the target node
         target_id: String,
+        /// Type/category of the edge
         edge_type: String,
+        /// Additional edge data
         data: serde_json::Value,
     },
     
     /// Remove a node
     RemoveNode {
+        /// Graph aggregate ID
         aggregate_id: Uuid,
+        /// ID of the node to remove
         node_id: String,
     },
     
     /// Remove an edge
     RemoveEdge {
+        /// Graph aggregate ID
         aggregate_id: Uuid,
+        /// ID of the edge to remove
         edge_id: String,
     },
 }

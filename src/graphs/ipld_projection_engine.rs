@@ -8,15 +8,22 @@ use crate::events::{GraphEvent, EventPayload, IpldPayload};
 use crate::graphs::ipld_event_chain::{Cid, IpldEventNode, IpldChainEdge};
 use uuid::Uuid;
 use std::collections::HashMap;
-use chrono::{DateTime, Utc};
 
 /// IPLD graph projection - built from immutable events
+#[derive(Debug)]
 pub struct IpldGraphProjection {
+    /// Aggregate ID this projection belongs to
     pub aggregate_id: Uuid,
+    /// Current version (last event sequence)
     pub version: u64,
+    /// IPLD event nodes indexed by CID
     pub nodes: HashMap<String, IpldEventNode>,
+    /// Chain edges between nodes
     pub edges: HashMap<String, IpldChainEdge>,
-    pub cid_chain: Vec<Cid>, // Ordered list of CIDs in the chain
+    /// Ordered list of CIDs in the chain
+    pub cid_chain: Vec<Cid>,
+    /// Additional metadata
+    pub metadata: HashMap<String, serde_json::Value>,
 }
 
 impl IpldGraphProjection {
@@ -28,6 +35,7 @@ impl IpldGraphProjection {
             nodes: HashMap::new(),
             edges: HashMap::new(),
             cid_chain: Vec::new(),
+            metadata: HashMap::new(),
         }
     }
     
@@ -45,6 +53,9 @@ impl IpldGraphProjection {
         if let EventPayload::Ipld(ipld_payload) = &event.payload {
             match ipld_payload {
                 IpldPayload::CidAdded { cid, codec, size, data } => {
+                    // Store codec and size in projection metadata
+                    self.metadata.insert(format!("cid_{}_codec", cid), serde_json::json!(codec));
+                    self.metadata.insert(format!("cid_{}_size", cid), serde_json::json!(size));
                     // Create the event payload that would be CID'd
                     let event_payload = crate::graphs::ipld_event_chain::EventPayload {
                         cid: Cid::new(cid),
@@ -94,11 +105,15 @@ impl IpldGraphProjection {
                 }
                 
                 IpldPayload::CidPinned { cid, recursive } => {
-                    // Pinning is metadata, not structural - could track in node metadata
+                    // Track pinning status in projection metadata
+                    self.metadata.insert(format!("cid_{}_pinned", cid), serde_json::json!(true));
+                    self.metadata.insert(format!("cid_{}_recursive", cid), serde_json::json!(recursive));
                 }
                 
                 IpldPayload::CidUnpinned { cid } => {
-                    // Unpinning is metadata, not structural
+                    // Track unpinning in projection metadata
+                    self.metadata.insert(format!("cid_{}_pinned", cid), serde_json::json!(false));
+                    self.metadata.remove(&format!("cid_{}_recursive", cid));
                 }
             }
         }

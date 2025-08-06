@@ -8,7 +8,7 @@
 use cim_graph::core::{GraphAggregateProjection, build_projection};
 use cim_graph::core::aggregate_projection::{query_entities_with_component, get_entity_components};
 use cim_graph::core::state_machine::{GraphStateMachine, process_command};
-use cim_graph::events::{GraphEvent, GraphCommand, EventPayload, IpldPayload, IpldCommand};
+use cim_graph::events::{GraphEvent, GraphCommand, EventPayload, IpldPayload};
 use uuid::Uuid;
 
 fn main() {
@@ -22,7 +22,7 @@ fn main() {
     println!("🔗 Correlation ID: {}\n", correlation_id);
     
     // Initialize state machine (enforces valid transitions)
-    let state_machine = GraphStateMachine::new();
+    let mut state_machine = GraphStateMachine::new();
     
     // Start with empty projection
     let subject = format!("graph.{}.events", aggregate_id);
@@ -41,7 +41,7 @@ fn main() {
     };
     
     // Process through state machine
-    match process_command(&state_machine, init_command, &projection) {
+    match process_command(&mut state_machine, init_command, &projection) {
         Ok(new_events) => {
             for event in new_events {
                 println!("  ✅ Event generated: {:?}", event.event_id);
@@ -55,19 +55,6 @@ fn main() {
     
     // Command 2: Add a CID (entity with components)
     println!("\n🎯 Command: Add CID to graph");
-    let add_cid_command = GraphCommand::Ipld {
-        aggregate_id,
-        correlation_id,
-        command: IpldCommand::AddCid {
-            cid: "QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdG".to_string(),
-            codec: "dag-cbor".to_string(),
-            size: 1024,
-            data: serde_json::json!({
-                "title": "Hello IPLD",
-                "content": "This is content-addressed data"
-            }),
-        },
-    };
     
     // Generate event directly (in real system, would go through command handler)
     let add_event = GraphEvent {
@@ -131,7 +118,7 @@ fn main() {
     println!("  ✅ Event generated: {:?}", link_event.event_id);
     events.push((link_event.clone(), sequence));
     projection.apply(&link_event, sequence);
-    sequence += 1;
+    // sequence += 1; // Would increment in real system but not needed for demo
     
     // Now demonstrate querying the projection using Systems
     println!("\n📊 Current Projection State:");

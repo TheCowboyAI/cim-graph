@@ -22,8 +22,10 @@ async fn test_connect_to_jetstream() {
 #[tokio::test]
 #[ignore = "Requires NATS server"]
 async fn test_publish_and_fetch_events() {
+    let test_id = Uuid::new_v4().to_string().replace("-", "");
     let config = JetStreamConfig {
-        stream_name: "CIM_TEST_STREAM".to_string(),
+        stream_name: format!("CIM_TEST_STREAM_{}", test_id),
+        subject_prefix: format!("cim.test.{}", test_id),
         ..Default::default()
     };
     
@@ -60,8 +62,10 @@ async fn test_publish_and_fetch_events() {
 #[tokio::test]
 #[ignore = "Requires NATS server"]
 async fn test_event_subscription() {
+    let test_id = Uuid::new_v4().to_string().replace("-", "");
     let config = JetStreamConfig {
-        stream_name: "CIM_TEST_SUB_STREAM".to_string(),
+        stream_name: format!("CIM_TEST_SUB_STREAM_{}", test_id),
+        subject_prefix: format!("cim.test.{}", test_id),
         ..Default::default()
     };
     
@@ -89,8 +93,10 @@ async fn test_event_subscription() {
 #[tokio::test]
 #[ignore = "Requires NATS server"]
 async fn test_correlation_id_fetch() {
+    let test_id = Uuid::new_v4().to_string().replace("-", "");
     let config = JetStreamConfig {
-        stream_name: "CIM_TEST_CORR_STREAM".to_string(),
+        stream_name: format!("CIM_TEST_CORR_STREAM_{}", test_id),
+        subject_prefix: format!("cim.test.{}", test_id),
         ..Default::default()
     };
     
@@ -125,8 +131,10 @@ async fn test_correlation_id_fetch() {
 #[tokio::test]
 #[ignore = "Requires NATS server"]
 async fn test_replay_consumer() {
+    let test_id = Uuid::new_v4().to_string().replace("-", "");
     let config = JetStreamConfig {
-        stream_name: "CIM_TEST_REPLAY_STREAM".to_string(),
+        stream_name: format!("CIM_TEST_REPLAY_STREAM_{}", test_id),
+        subject_prefix: format!("cim.test.{}", test_id),
         ..Default::default()
     };
     

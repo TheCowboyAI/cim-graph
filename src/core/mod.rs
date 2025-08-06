@@ -28,6 +28,7 @@ pub use self::cim_graph::{GraphProjection, GraphEvent as CimGraphEvent, EventDat
 pub use self::projection_engine::{ProjectionEngine, GenericGraphProjection, ProjectionCache};
 pub use self::aggregate_projection::{GraphAggregateProjection, build_projection};
 pub use self::ipld_chain::{IpldChainAggregate, Cid, IpldChainCommand, IpldChainEvent};
+pub use self::state_machine::{GraphStateMachine, GraphState, WorkflowState};
 pub use self::policies::{
     Policy, PolicyEngine, PolicyContext, PolicyAction, PolicyMetrics,
     CidGenerationPolicy, ProjectionUpdatePolicy, StateValidationPolicy,

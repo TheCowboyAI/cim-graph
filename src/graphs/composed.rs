@@ -17,37 +17,72 @@ pub type ComposedProjection = ComposedGraph;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum GraphDomain {
     /// IPLD graph reference
-    Ipld { graph_id: Uuid },
+    Ipld { 
+        /// ID of the IPLD graph being referenced
+        graph_id: Uuid 
+    },
     /// Context graph reference
-    Context { graph_id: Uuid },
+    Context { 
+        /// ID of the context graph being referenced
+        graph_id: Uuid 
+    },
     /// Workflow graph reference
-    Workflow { graph_id: Uuid },
+    Workflow { 
+        /// ID of the workflow graph being referenced
+        graph_id: Uuid 
+    },
     /// Concept graph reference
-    Concept { graph_id: Uuid },
+    Concept { 
+        /// ID of the concept graph being referenced
+        graph_id: Uuid 
+    },
     /// Another composed graph reference
-    Composed { graph_id: Uuid },
+    Composed { 
+        /// ID of the composed graph being referenced
+        graph_id: Uuid 
+    },
 }
 
 /// Type of composed node
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ComposedNodeType {
     /// Reference to a graph
-    GraphReference { domain: GraphDomain },
+    GraphReference { 
+        /// Domain and ID of the referenced graph
+        domain: GraphDomain 
+    },
     /// Reference to a node in another graph
-    NodeReference { graph_id: Uuid, node_id: String },
+    NodeReference { 
+        /// ID of the graph containing the node
+        graph_id: Uuid, 
+        /// ID of the node within that graph
+        node_id: String 
+    },
     /// Junction node connecting multiple graphs
-    Junction { connected_graphs: Vec<Uuid> },
+    Junction { 
+        /// IDs of graphs connected at this junction
+        connected_graphs: Vec<Uuid> 
+    },
     /// Transformation node
-    Transform { operation: String },
+    Transform { 
+        /// Transformation operation to apply
+        operation: String 
+    },
     /// Aggregation node
-    Aggregate { aggregation_type: String },
+    Aggregate { 
+        /// Type of aggregation (sum, count, merge, etc.)
+        aggregation_type: String 
+    },
 }
 
 /// Composed node represents elements from multiple graph domains
 #[derive(Debug, Clone)]
 pub struct ComposedNode {
+    /// Unique identifier for the node
     pub id: String,
+    /// Type of composed node
     pub node_type: ComposedNodeType,
+    /// Additional metadata for the node
     pub metadata: HashMap<String, serde_json::Value>,
 }
 
@@ -134,17 +169,28 @@ impl Node for ComposedNode {
 pub enum ComposedEdgeType {
     /// Cross-graph link
     CrossGraphLink {
+        /// ID of the source graph
         source_graph: Uuid,
+        /// ID of the target graph
         target_graph: Uuid,
     },
     /// Data flow
-    DataFlow { flow_type: String },
+    DataFlow { 
+        /// Type of data flow (push, pull, stream, etc.)
+        flow_type: String 
+    },
     /// Control flow
     ControlFlow,
     /// Dependency
-    Dependency { dependency_type: String },
+    Dependency { 
+        /// Type of dependency (requires, provides, etc.)
+        dependency_type: String 
+    },
     /// Transformation
-    Transformation { transform: String },
+    Transformation { 
+        /// Transformation operation
+        transform: String 
+    },
     /// Synchronization
     Synchronization,
 }
@@ -152,10 +198,15 @@ pub enum ComposedEdgeType {
 /// Composed edge represents relationships across graph domains
 #[derive(Debug, Clone)]
 pub struct ComposedEdge {
+    /// Unique identifier for the edge
     pub id: String,
+    /// Source node ID
     pub source: String,
+    /// Target node ID
     pub target: String,
+    /// Type of composed edge
     pub edge_type: ComposedEdgeType,
+    /// Additional metadata for the edge
     pub metadata: HashMap<String, serde_json::Value>,
 }
 
@@ -358,7 +409,7 @@ impl ComposedProjection {
     }
 
     fn find_paths_between(&self, from: &str, to: &str) -> Vec<Vec<String>> {
-        use std::collections::{VecDeque, HashSet};
+        use std::collections::VecDeque;
         
         let mut paths = Vec::new();
         let mut queue = VecDeque::new();

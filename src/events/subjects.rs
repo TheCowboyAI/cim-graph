@@ -11,14 +11,20 @@ pub const GRAPH_ROOT: &str = "cim.graph";
 /// Subject components for different graph types
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GraphType {
+    /// InterPlanetary Linked Data graphs
     Ipld,
+    /// Domain-driven design context graphs
     Context,
+    /// State machine workflow graphs
     Workflow,
+    /// Knowledge representation concept graphs
     Concept,
+    /// Graphs composed of multiple sub-graphs
     Composed,
 }
 
 impl GraphType {
+    /// Convert graph type to string representation
     fn as_str(&self) -> &str {
         match self {
             GraphType::Ipld => "ipld",
@@ -33,17 +39,26 @@ impl GraphType {
 /// Event type components
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EventType {
+    /// Graph or entity was created
     Created,
+    /// Graph or entity was updated
     Updated,
+    /// Graph or entity was deleted
     Deleted,
+    /// Node was added to graph
     NodeAdded,
+    /// Node was removed from graph
     NodeRemoved,
+    /// Edge was added between nodes
     EdgeAdded,
+    /// Edge was removed from graph
     EdgeRemoved,
+    /// State machine state changed
     StateChanged,
 }
 
 impl EventType {
+    /// Convert event type to string representation
     fn as_str(&self) -> &str {
         match self {
             EventType::Created => "created",

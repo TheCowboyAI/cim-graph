@@ -79,30 +79,29 @@ fn main() {
     println!("\n2. Demonstrating correlation - all events in the same workflow:");
     let correlated = store.get_correlated_events(correlation_id);
     for event in &correlated {
-        println!("   - v{}: {:?}", 
-            event.metadata.version,
-            match &event.payload {
-                GraphEventPayload::GraphCreated { .. } => "GraphCreated",
-                GraphEventPayload::NodeAdded { node_id, .. } => &format!("NodeAdded({})", node_id),
-                GraphEventPayload::EdgeAdded { edge_id, .. } => &format!("EdgeAdded({})", edge_id),
-                _ => "Other",
-            }
-        );
+        let event_type = match &event.payload {
+            GraphEventPayload::GraphCreated { .. } => "GraphCreated".to_string(),
+            GraphEventPayload::NodeAdded { node_id, .. } => format!("NodeAdded({})", node_id),
+            GraphEventPayload::EdgeAdded { edge_id, .. } => format!("EdgeAdded({})", edge_id),
+            _ => "Other".to_string(),
+        };
+        println!("   - v{}: {}", event.metadata.version, event_type);
     }
     
     println!("\n3. Demonstrating causation chain:");
     let chain = store.get_causation_chain(add_transition.metadata.event_id);
     println!("   Causation chain for 'add_transition' event:");
     for (i, event) in chain.iter().enumerate() {
-        println!("   {}→ v{}: {:?}", 
+        let event_type = match &event.payload {
+            GraphEventPayload::GraphCreated { .. } => "GraphCreated".to_string(),
+            GraphEventPayload::NodeAdded { node_id, .. } => format!("NodeAdded({})", node_id),
+            GraphEventPayload::EdgeAdded { edge_id, .. } => format!("EdgeAdded({})", edge_id),
+            _ => "Other".to_string(),
+        };
+        println!("   {}→ v{}: {}", 
             "  ".repeat(i),
             event.metadata.version,
-            match &event.payload {
-                GraphEventPayload::GraphCreated { .. } => "GraphCreated",
-                GraphEventPayload::NodeAdded { node_id, .. } => &format!("NodeAdded({})", node_id),
-                GraphEventPayload::EdgeAdded { .. } => "EdgeAdded",
-                _ => "Other",
-            }
+            event_type
         );
     }
     
@@ -127,13 +126,11 @@ fn main() {
     let range = store.get_events_in_range(aggregate_id, 2, 3);
     println!("   Events between version 2 and 3:");
     for event in &range {
-        println!("   - v{}: {:?}", 
-            event.metadata.version,
-            match &event.payload {
-                GraphEventPayload::NodeAdded { node_id, .. } => &format!("NodeAdded({})", node_id),
-                _ => "Other",
-            }
-        );
+        let event_type = match &event.payload {
+            GraphEventPayload::NodeAdded { node_id, .. } => format!("NodeAdded({})", node_id),
+            _ => "Other".to_string(),
+        };
+        println!("   - v{}: {}", event.metadata.version, event_type);
     }
     
     println!("\n=== Key Benefits ===");

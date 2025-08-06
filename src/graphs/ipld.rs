@@ -5,5 +5,5 @@
 
 pub use super::ipld_projection::*;
 
-// Re-export for compatibility
+/// IPLD graph type alias for backward compatibility
 pub type IpldGraph = IpldProjection;

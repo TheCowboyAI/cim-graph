@@ -7,27 +7,44 @@
 [![Downloads](https://img.shields.io/crates/d/cim-graph.svg)](https://crates.io/crates/cim-graph)
 [![Maintenance](https://img.shields.io/badge/maintenance-actively--developed-brightgreen.svg)](https://github.com/thecowboyai/cim-graph)
 
-A high-performance, type-safe graph abstraction library that unifies multiple graph paradigms under a single, consistent API. CIM Graph provides specialized graph types for different domains while maintaining semantic clarity and zero-cost abstractions.
+A pure event-driven graph library where events are the only source of truth. CIM Graph provides specialized graph types for different domains, all built on event sourcing principles with IPLD storage and NATS JetStream persistence.
+
+## 🚨 Major Architecture Change
+
+**CIM Graph is now purely event-driven. All state changes MUST go through events. Direct mutations are no longer supported.**
+
+See [EVENT_DRIVEN_ARCHITECTURE.md](EVENT_DRIVEN_ARCHITECTURE.md) for the complete guide.
 
 ## Overview
 
-CIM Graph consolidates various graph operations from across the CIM ecosystem into a unified interface:
+CIM Graph implements a complete event-sourcing architecture where:
 
-- **IPLD Graphs**: Content-addressed data relationships and Markov chains
-- **Context Graphs**: Domain-Driven Design object relationships and hierarchies
-- **Workflow Graphs**: State machines and workflow transitions
-- **Concept Graphs**: Semantic reasoning and conceptual spaces
-- **Composed Graphs**: Multi-domain graph compositions with cross-graph queries
+- **Events are the ONLY way to change state** - No direct mutations
+- **Projections are ephemeral read models** - Rebuilt from events
+- **IPLD provides content-addressed storage** - Every event payload gets a CID
+- **NATS JetStream handles persistence** - Durable event streams
+- **State machines enforce transitions** - Business rules validation
+- **Policies automate behaviors** - CID generation, validation, etc.
 
 ## Key Features
 
-- 🚀 **High Performance**: Built on petgraph with zero-cost abstractions
-- 🔒 **Type Safety**: Leverage Rust's type system to prevent runtime errors
-- 🎯 **Domain-Specific**: Specialized graph types for different use cases
-- 🔄 **Event Sourcing**: All operations emit domain events for audit trails
-- 📦 **Serialization**: Native support for JSON and Nix expressions
-- 🧩 **Composable**: Combine graphs from different domains seamlessly
-- 📊 **Rich Algorithms**: Built-in pathfinding, traversal, and analysis tools
+- 🎯 **Pure Event Sourcing**: Complete audit trail with correlation/causation tracking
+- 🔒 **Immutable by Design**: Events are append-only, projections are read-only
+- 🌐 **Content Addressed**: All event payloads stored in IPLD with CIDs
+- 📡 **NATS Integration**: Stream events with JetStream persistence
+- 🏗️ **Domain-Driven Design**: Clear bounded contexts with defined relationships
+- 🔄 **State Machines**: Enforce valid transitions and business rules
+- 🤖 **Automated Policies**: React to events with configurable behaviors
+- 📊 **Rich Projections**: Query current state through type-safe projections
+
+## Recent Improvements (v0.1.1)
+
+- ✅ **Complete Documentation**: All public APIs now have comprehensive documentation
+- ✅ **Debug Implementations**: All types now implement Debug for better debugging experience
+- ✅ **Zero Warnings**: Codebase compiles cleanly with all features enabled
+- ✅ **Working Examples**: All 9 examples are fully functional and demonstrate best practices
+- ✅ **Better Error Messages**: Improved error handling and messages throughout
+- ✅ **Test Coverage**: 49 passing tests covering core functionality
 
 ## Installation
 
@@ -35,178 +52,198 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-cim-graph = "0.1.0"
+cim-graph = "0.1.1"
 
 # Optional features
-cim-graph = { version = "0.1.0", features = ["async"] }
+cim-graph = { version = "0.1.1", features = ["nats", "async"] }
 ```
 
 ## Quick Start
 
-### Basic Graph Operations
+### Creating Events (The Only Way to Change State)
 
 ```rust
-use cim_graph::{GraphBuilder, Node, Edge, Result};
+use cim_graph::{
+    events::{GraphEvent, EventPayload, WorkflowPayload},
+    core::{ProjectionEngine, GraphProjection},
+    graphs::{WorkflowNode, WorkflowEdge},
+};
+use uuid::Uuid;
 
-fn main() -> Result<()> {
-    // Create a simple graph
-    let mut graph = GraphBuilder::new()
-        .with_capacity(100, 200)
-        .build();
-    
-    // Add nodes
-    let node1 = graph.add_node(Node::new("Alice", "Person"))?;
-    let node2 = graph.add_node(Node::new("Bob", "Person"))?;
-    
-    // Connect nodes
-    graph.add_edge(node1, node2, Edge::new("knows"))?;
-    
-    // Query the graph
-    let neighbors = graph.neighbors(node1)?;
-    println!("Alice knows: {:?}", neighbors);
-    
-    Ok(())
-}
+// Create events to build a workflow
+let workflow_id = Uuid::new_v4();
+let events = vec![
+    GraphEvent {
+        event_id: Uuid::new_v4(),
+        aggregate_id: workflow_id,
+        correlation_id: Uuid::new_v4(),
+        causation_id: None,
+        payload: EventPayload::Workflow(WorkflowPayload::WorkflowDefined {
+            workflow_id,
+            name: "Order Processing".to_string(),
+            version: "1.0.0".to_string(),
+        }),
+    },
+    GraphEvent {
+        event_id: Uuid::new_v4(),
+        aggregate_id: workflow_id,
+        correlation_id: Uuid::new_v4(),
+        causation_id: None,
+        payload: EventPayload::Workflow(WorkflowPayload::StateAdded {
+            workflow_id,
+            state_id: "submitted".to_string(),
+            state_type: "initial".to_string(),
+        }),
+    },
+];
+
+// Build projection from events
+let engine = ProjectionEngine::<WorkflowNode, WorkflowEdge>::new();
+let projection = engine.project(events);
+
+// Query the projection (read-only)
+println!("Nodes: {}", projection.node_count());
+println!("Version: {}", projection.version());
 ```
 
-### Domain-Specific Graphs
+## Bounded Contexts
+
+CIM Graph is organized into 5 bounded contexts:
+
+### 1. IPLD Context
+Content-addressed storage for all data. Every event payload gets a CID.
+
+### 2. Context Context (DDD)
+Data schemas, transformations, and bounded context definitions.
+
+### 3. Workflow Context
+State machines, business processes, and workflow orchestration.
+
+### 4. Concept Context
+Domain knowledge, semantic reasoning, and ontologies.
+
+### 5. Composed Context
+Multi-graph orchestration and cross-domain queries.
+
+## Event Flow
+
+```
+Command → State Machine → Event → IPLD → NATS → Projection
+                             ↓
+                          Policies
+                             ↓
+                     Additional Events
+```
+
+## Working with Projections
+
+Projections are read-only views computed from events:
 
 ```rust
-use cim_graph::graphs::{IpldGraph, ContextGraph, WorkflowGraph, ConceptGraph};
+use cim_graph::core::{ProjectionEngine, GraphProjection};
+use cim_graph::graphs::{ConceptNode, ConceptEdge};
 
-// IPLD Graph for content-addressed data
-let mut ipld = IpldGraph::new();
-let cid1 = ipld.add_cid("QmHash1...")?;
-let cid2 = ipld.add_cid("QmHash2...")?;
-ipld.add_link(cid1, cid2, "contains")?;
+// Build projection from events
+let engine = ProjectionEngine::<ConceptNode, ConceptEdge>::new();
+let projection = engine.project(concept_events);
 
-// Context Graph for domain modeling
-let mut context = ContextGraph::new();
-let user = context.add_aggregate("User", user_id)?;
-let order = context.add_aggregate("Order", order_id)?;
-context.add_relationship(user, order, "placed")?;
-
-// Workflow Graph for state machines
-let mut workflow = WorkflowGraph::new();
-let draft = workflow.add_state("Draft")?;
-let published = workflow.add_state("Published")?;
-workflow.add_transition(draft, published, "publish")?;
-
-// Concept Graph for semantic reasoning
-let mut concepts = ConceptGraph::new();
-let vehicle = concepts.add_concept("Vehicle")?;
-let car = concepts.add_concept("Car")?;
-concepts.add_relation(car, vehicle, "is_a")?;
+// Query methods (all read-only)
+let node_count = projection.node_count();
+let has_node = projection.has_node("customer");
+let has_edge = projection.has_edge("order", "customer");
 ```
 
-### Graph Composition
+## State Machines
+
+Validate commands and enforce business rules:
 
 ```rust
-use cim_graph::{compose_graphs, CompositionStrategy};
+use cim_graph::core::{GraphStateMachine, GraphCommand};
 
-// Compose multiple graphs
-let composed = compose_graphs()
-    .add_graph("ipld", ipld_graph)
-    .add_graph("context", context_graph)
-    .add_graph("workflow", workflow_graph)
-    .with_strategy(CompositionStrategy::PreserveAll)
-    .with_mapping(|node| {
-        // Define how nodes map between graphs
-        match node.graph_type() {
-            "ipld" => Some(MappingRule::ByProperty("cid")),
-            "context" => Some(MappingRule::ByProperty("aggregate_id")),
-            _ => None,
-        }
-    })
-    .compose()?;
+let mut state_machine = GraphStateMachine::new();
 
-// Query across composed graphs
-let results = composed
-    .query()
-    .start_from("context", user_id)
-    .traverse_to("workflow")
-    .where_property("state", "active")
-    .execute()?;
+// Commands are validated before creating events
+let command = GraphCommand::CreateGraph {
+    aggregate_id: Uuid::new_v4(),
+    graph_type: "workflow".to_string(),
+    metadata: HashMap::new(),
+};
+
+let events = state_machine.handle_command(command, &projection)?;
 ```
 
-### Event Handling
+## Policies
+
+Automate behaviors in response to events:
 
 ```rust
-use cim_graph::{EventGraph, GraphEvent, EventHandler};
+use cim_graph::core::{PolicyEngine, CidGenerationPolicy, StateValidationPolicy};
 
-// Create an event-aware graph
-let mut graph = EventGraph::new();
+let mut policy_engine = PolicyEngine::new();
+policy_engine.add_policy(Box::new(CidGenerationPolicy));
+policy_engine.add_policy(Box::new(StateValidationPolicy));
 
-// Subscribe to events
-graph.subscribe(|event: &GraphEvent| {
-    match event {
-        GraphEvent::NodeAdded { id, data, .. } => {
-            println!("Node {} added with data: {:?}", id, data);
-        }
-        GraphEvent::EdgeAdded { from, to, .. } => {
-            println!("Edge added: {} -> {}", from, to);
-        }
-        _ => {}
-    }
-});
-
-// All operations emit events
-let node = graph.add_node(Node::new("data", "type"))?;
+// Policies can generate additional events
+let actions = policy_engine.evaluate(&event, &mut context)?;
 ```
 
-### Serialization
+## NATS JetStream Integration
+
+Persist and stream events:
 
 ```rust
-use cim_graph::serde_support::{to_json, from_json, to_nix};
+#[cfg(feature = "nats")]
+use cim_graph::nats::JetStreamEventStore;
 
-// Serialize to JSON
-let json = to_json(&graph)?;
-std::fs::write("graph.json", json)?;
+// Connect to NATS
+let store = JetStreamEventStore::new("nats://localhost:4222").await?;
 
-// Deserialize from JSON
-let loaded: IpldGraph = from_json(&json)?;
+// Publish events with subject hierarchy
+store.publish_events(&events).await?;
 
-// Export to Nix expression
-let nix_expr = to_nix(&graph)?;
-std::fs::write("graph.nix", nix_expr)?;
+// Subscribe using subject patterns
+let subscription = store.subscribe("cim.graph.workflow.*").await?;
 ```
+
+## Examples
+
+### Examples
+
+All examples are now fully functional and demonstrate different aspects of the event-driven architecture:
+
+- [Basic Event-Driven](examples/basic_event_driven.rs) - Introduction to event-driven concepts
+- [Complete Event-Driven Demo](examples/complete_event_driven.rs) - Comprehensive demonstration of all features
+- [Workflow Event-Driven](examples/workflow_event_driven.rs) - Workflow patterns with state machines
+- [Order Processing System](examples/order_processing_system.rs) - Real-world e-commerce example
+- [NATS Integration](examples/nats_event_driven.rs) - JetStream persistence (requires `--features nats`)
+- [Simple Workflow](examples/simple_workflow.rs) - Core event-driven concepts with CimGraphEvent
+- [Event-Driven Simple](examples/event_driven_simple.rs) - High-level event API demonstration
+- [Pure Event-Driven](examples/pure_event_driven.rs) - Pure event patterns
+- [Collaborative Graph](examples/collaborative_graph.rs) - Collaborative operations
+
+See [EXAMPLES.md](EXAMPLES.md) for details on running the examples.
 
 ## Documentation
 
-- [API Documentation](https://docs.rs/cim-graph) - Complete API reference
-- [Architecture Guide](docs/architecture.md) - System design and internals
-- [Graph Types Guide](docs/graph-types.md) - Detailed guide for each graph type
-- [Algorithms Guide](docs/algorithms.md) - Available algorithms and usage
-- [Best Practices](docs/best-practices.md) - Recommended patterns and tips
-- [Examples](examples/) - Runnable example code
+- [Event-Driven Architecture Guide](EVENT_DRIVEN_ARCHITECTURE.md) - Complete guide to the new architecture
+- [Event Design Best Practices](docs/EVENT_DESIGN_BEST_PRACTICES.md) - How to design events properly
+- [API Documentation](https://docs.rs/cim-graph) - Full API reference
+- [Bounded Contexts](docs/bounded_contexts.md) - Domain boundaries and relationships
+- [Migration Guide](MIGRATION_GUIDE.md) - Migrating from the old mutable API
 
-## Performance
+## Migration from Old API
 
-CIM Graph is designed for high performance:
-
-- Zero-cost abstractions over petgraph
-- Optimized memory layout for cache efficiency
-- Parallel algorithms where applicable
-- Benchmarks available in `benches/`
-
-Run benchmarks with:
-```bash
-cargo bench
-```
+The old mutable API (`graph.add_node()`, `graph.add_edge()`, etc.) is no longer supported. See the [Migration Guide](MIGRATION_GUIDE.md) for step-by-step instructions on updating your code to the event-driven architecture.
 
 ## Contributing
 
-We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
+Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## License
 
 Licensed under either of:
 
-- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
-- MIT license ([LICENSE-MIT](LICENSE-MIT))
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0)
+- MIT license ([LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT)
 
 at your option.
-
-## Acknowledgments
-
-Built on top of the excellent [petgraph](https://github.com/petgraph/petgraph) library.

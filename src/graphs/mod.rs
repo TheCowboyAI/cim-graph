@@ -80,10 +80,11 @@ pub mod event_driven_workflow;
 
 
 pub use self::ipld::IpldGraph;
-pub use self::ipld_projection::{IpldProjection, IpldCommand, ipld_command_to_graph_command};
+pub use self::ipld_projection::{IpldProjection, IpldCommand, ipld_command_to_graph_command, IpldNode, IpldEdge};
 pub use self::ipld_event_chain::{Cid, CidChain, EventPayload, IpldEventNode, EventChainBuilder, CidGenerator};
 pub use self::ipld_projection_engine::{IpldGraphProjection, build_ipld_projection};
 pub use self::context::ContextGraph;
-pub use self::workflow::WorkflowGraph;
-pub use self::concept::ConceptGraph;
-pub use self::composed::ComposedGraph;
+pub use self::context_projection::{ContextNode, ContextEdge};
+pub use self::workflow::{WorkflowGraph, WorkflowNode, WorkflowEdge, WorkflowNodeType, WorkflowProjection};
+pub use self::concept::{ConceptGraph, ConceptNode, ConceptEdge, ConceptNodeType, ConceptProjection};
+pub use self::composed::{ComposedGraph, ComposedNode, ComposedEdge, ComposedProjection};

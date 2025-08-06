@@ -219,21 +219,28 @@ impl IpldChainAggregate {
 pub enum IpldChainCommand {
     /// Add an event to the chain
     AddEvent {
+        /// Aggregate ID for the chain
         aggregate_id: Uuid,
+        /// Event payload to add
         payload: serde_json::Value,
     },
     /// Verify chain integrity
     VerifyChain {
+        /// Aggregate ID of the chain to verify
         aggregate_id: Uuid,
     },
     /// Pin a CID
     PinCid {
+        /// Aggregate ID for the chain
         aggregate_id: Uuid,
+        /// CID to pin
         cid: Cid,
     },
     /// Unpin a CID
     UnpinCid {
+        /// Aggregate ID for the chain
         aggregate_id: Uuid,
+        /// CID to unpin
         cid: Cid,
     },
 }
@@ -243,26 +250,38 @@ pub enum IpldChainCommand {
 pub enum IpldChainEvent {
     /// Event was added to chain
     EventAdded {
+        /// Aggregate ID for the chain
         aggregate_id: Uuid,
+        /// CID of the added event
         cid: Cid,
+        /// CID of the previous event in chain
         previous_cid: Option<Cid>,
+        /// Sequence number in the chain
         sequence: usize,
     },
     /// Chain was verified
     ChainVerified {
+        /// Aggregate ID for the chain
         aggregate_id: Uuid,
+        /// Root CID of the chain
         root_cid: Cid,
+        /// Number of events in the chain
         length: usize,
+        /// Whether the chain is valid
         is_valid: bool,
     },
     /// CID was pinned
     CidPinned {
+        /// Aggregate ID for the chain
         aggregate_id: Uuid,
+        /// CID that was pinned
         cid: Cid,
     },
     /// CID was unpinned
     CidUnpinned {
+        /// Aggregate ID for the chain
         aggregate_id: Uuid,
+        /// CID that was unpinned
         cid: Cid,
     },
 }

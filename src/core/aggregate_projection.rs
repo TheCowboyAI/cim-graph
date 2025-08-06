@@ -9,9 +9,10 @@
 use crate::events::{GraphEvent, EventPayload};
 use uuid::Uuid;
 use std::collections::HashMap;
+use serde::{Serialize, Deserialize};
 
 /// A graph aggregate projection - the result of folding all events
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraphAggregateProjection {
     /// The aggregate root ID
     pub aggregate_id: Uuid,
