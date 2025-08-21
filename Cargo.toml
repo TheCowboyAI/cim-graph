@@ -5,8 +5,8 @@ version = "0.1.0"
 edition = "2021"
 authors = ["CIM Team <team@thecowboy.ai>"]
 description = "Unified graph abstraction library consolidating all graph operations across the CIM ecosystem"
-repository = "https://github.com/thecowboyai/cim-graph"
-homepage = "https://github.com/thecowboyai/cim-graph"
+repository = "https://github.com/TheCowboyAI/cim-graph"
+homepage = "https://github.com/TheCowboyAI/cim-graph"
 documentation = "https://docs.rs/cim-graph"
 readme = "README.md"
 license = "MIT OR Apache-2.0"
@@ -37,7 +37,7 @@ maintenance = { status = "actively-developed" }
 # cim-domain = { git = "https://github.com/thecowboyai/cim-domain.git" }
 
 # CIM Subject Algebra for NATS subjects
-cim-subject = { git = "https://github.com/thecowboyai/cim-subject.git", tag = "v0.5.0" }
+cim-subject = { git = "https://github.com/TheCowboyAI/cim-subject", tag = "v0.5.0" }
 
 # Core dependencies
 thiserror = "1.0"
