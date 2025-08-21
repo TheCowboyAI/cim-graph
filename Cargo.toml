@@ -40,7 +40,7 @@ maintenance = { status = "actively-developed" }
 cim-subject = { git = "https://github.com/TheCowboyAI/cim-subject", tag = "v0.5.0" }
 
 # Core dependencies
-thiserror = "1.0"
+thiserror = "2.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
