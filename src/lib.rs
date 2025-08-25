@@ -10,6 +10,7 @@
 //! - **Context Graphs**: Domain-Driven Design bounded contexts
 //! - **Workflow Graphs**: State machines and process flows
 //! - **Concept Graphs**: Semantic reasoning and knowledge representation
+//! - **Conceptual Spaces**: Topological spaces with Voronoi tessellation
 //! - **Composed Graphs**: Multi-domain graph compositions
 //!
 //! ## Features
@@ -108,6 +109,9 @@ pub mod optimization;
 
 /// Event analytics and metrics
 pub mod analytics;
+
+/// Conceptual spaces with topological structure
+pub mod conceptual_space;
 
 // Re-exports
 pub use crate::core::{Node, Edge, EventHandler, GraphEvent as CoreGraphEvent, GraphProjection};
