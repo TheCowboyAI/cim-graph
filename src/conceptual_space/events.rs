@@ -15,71 +15,107 @@ use std::collections::HashMap;
 pub enum ConceptualSpaceEvent {
     /// Create new conceptual space
     SpaceCreated {
+        /// Unique identifier for the new space
         space_id: String,
+        /// Initial radius of the conceptual sphere
         initial_radius: f64,
+        /// Unix timestamp of creation
         timestamp: u64,
+        /// Creator identifier
         creator: String,
     },
     /// Add concept to space
     ConceptAdded {
+        /// Unique identifier for the concept
         concept_id: String,
+        /// Properties defining the concept
         properties: HashMap<String, serde_json::Value>,
+        /// Unix timestamp of addition
         timestamp: u64,
     },
     /// Remove concept from space
     ConceptRemoved {
+        /// ID of concept to remove
         concept_id: String,
+        /// Unix timestamp of removal
         timestamp: u64,
     },
     /// Add edge between concepts
     EdgeAdded {
+        /// Unique identifier for the edge
         edge_id: String,
+        /// Source concept ID
         from_node: String,
+        /// Target concept ID
         to_node: String,
+        /// Type of relationship
         edge_type: String,
+        /// Properties of the edge
         properties: HashMap<String, serde_json::Value>,
+        /// Unix timestamp of addition
         timestamp: u64,
     },
     /// Remove edge between concepts
     EdgeRemoved {
+        /// ID of edge to remove
         edge_id: String,
+        /// Unix timestamp of removal
         timestamp: u64,
     },
     /// Topology changed
     TopologyChanged {
+        /// ID of the space whose topology changed
         space_id: String,
+        /// Description of new topology
         new_topology: String,
+        /// Unix timestamp of change
         timestamp: u64,
     },
     /// Tessellation updated
     TessellationUpdated {
+        /// ID of the space being tessellated
         space_id: String,
+        /// Number of cells in tessellation
         cell_count: usize,
+        /// Unix timestamp of update
         timestamp: u64,
     },
     /// Pattern emerged
     PatternEmerged {
+        /// Unique identifier for the pattern
         pattern_id: String,
+        /// Type of pattern detected
         pattern_type: String,
+        /// Concepts involved in the pattern
         involved_concepts: Vec<String>,
+        /// Unix timestamp of emergence
         timestamp: u64,
     },
     /// Pattern dissolved
     PatternDissolved {
+        /// Unique identifier of the dissolved pattern
         pattern_id: String,
+        /// Unix timestamp when the pattern was dissolved
         timestamp: u64,
     },
     /// Quality dimension added
     QualityDimensionAdded {
+        /// Unique identifier of the quality dimension
         dimension_id: String,
+        /// Type of the quality dimension
         dimension_type: String,
+        /// Origin concept in the dimensional relationship
         origin_concept: String,
+        /// Target concept in the dimensional relationship
         target_concept: String,
+        /// Unix timestamp when the dimension was added
         timestamp: u64,
     },
     /// Quality dimension removed
     QualityDimensionRemoved {
+        /// Unique identifier of the removed dimension
         dimension_id: String,
+        /// Unix timestamp when the dimension was removed
         timestamp: u64,
     },
 }

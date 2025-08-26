@@ -10,45 +10,65 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use super::types::{Point3, Vector3, ConceptNode};
+use super::types::{Point3, ConceptNode};
 
 /// Voronoi tessellation computed from concept node positions
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SphericalVoronoiTessellation {
+    /// Unique identifier for this tessellation
     pub tessellation_id: String,
+    /// Voronoi cells around each concept
     pub cells: Vec<VoronoiCell>,
+    /// Edges of the dual (Delaunay) graph
     pub dual_graph_edges: Vec<DualEdge>,
+    /// Total surface area of the sphere
     pub total_surface_area: f64,
 }
 
 /// Individual Voronoi cell around a concept
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VoronoiCell {
+    /// Unique identifier for this cell
     pub cell_id: String,
+    /// ID of the concept at the center
     pub concept_node_id: String,
+    /// Position of the generating concept
     pub generator_position: Point3<f64>,
+    /// Vertices defining the cell boundary
     pub vertices: Vec<Point3<f64>>,
+    /// Edges of the cell
     pub edges: Vec<SphericalEdge>,
+    /// Surface area of the cell
     pub area: f64,
+    /// Influence strength of the concept
     pub concept_influence_strength: f64,
 }
 
 /// Edge in dual graph connecting adjacent Voronoi cells
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DualEdge {
+    /// Unique identifier for this edge
     pub edge_id: String,
+    /// First cell ID
     pub cell1_id: String,
+    /// Second cell ID
     pub cell2_id: String,
+    /// The shared boundary between cells
     pub shared_boundary: SphericalEdge,
+    /// Strength of relationship between concepts
     pub concept_relationship_strength: f64,
 }
 
 /// Edge on spherical surface
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SphericalEdge {
+    /// Starting point of the edge
     pub start: Point3<f64>,
+    /// Ending point of the edge
     pub end: Point3<f64>,
+    /// Length of the arc on the sphere
     pub arc_length: f64,
+    /// Whether this is a geodesic (shortest path)
     pub is_geodesic: bool,
 }
 
@@ -217,7 +237,7 @@ impl VoronoiCell {
 
     /// Compute area of the Voronoi cell on the sphere
     fn compute_area(
-        center: &Point3<f64>,
+        _center: &Point3<f64>,
         all_positions: &[Point3<f64>],
     ) -> Result<f64> {
         // Simplified: equal area distribution

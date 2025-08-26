@@ -13,66 +13,97 @@ use std::collections::HashMap;
 /// Mathematical proof of conceptual space consistency
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MathematicalProof {
+    /// Unique identifier for this proof
     pub id: String,
+    /// Category objects (vertices in the proof graph)
     pub objects: Vec<CategoryObject>,
+    /// Morphisms (edges in the proof graph)
     pub morphisms: Vec<Morphism>,
+    /// Commutation laws that must hold for proof validity
     pub commutation_laws: Vec<CommutationLaw>,
+    /// Current status of the proof validation
     pub proof_status: ProofStatus,
 }
 
 /// Object in a category (vertex in proof graph)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CategoryObject {
+    /// Unique identifier for this category object
     pub id: String,
+    /// Type classification of the object
     pub object_type: ObjectType,
+    /// Additional properties of the object
     pub properties: HashMap<String, serde_json::Value>,
 }
 
 /// Type of category object
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ObjectType {
+    /// Domain object (source of morphism)
     Domain,
+    /// Codomain object (target of morphism)
     Codomain,
+    /// Intermediate object in composition chain
     Intermediate,
+    /// Identity object (self-morphism)
     Identity,
 }
 
 /// Morphism between objects (edge in proof graph)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Morphism {
+    /// Unique identifier for this morphism
     pub id: String,
+    /// Source object ID
     pub source: String,
+    /// Target object ID
     pub target: String,
+    /// Type of this morphism
     pub morphism_type: MorphismType,
+    /// Whether this morphism is reversible
     pub is_isomorphism: bool,
 }
 
 /// Type of morphism
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum MorphismType {
+    /// Standard function morphism
     Function,
+    /// Natural transformation between functors
     NaturalTransformation,
+    /// Functor between categories
     Functor,
+    /// Bijective morphism with inverse
     Isomorphism,
+    /// Injective morphism preserving structure
     Embedding,
+    /// Surjective morphism reducing dimensions
     Projection,
 }
 
 /// Commutation law that must hold
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CommutationLaw {
+    /// Unique identifier for this law
     pub id: String,
+    /// First path of morphism IDs
     pub path1: Vec<String>, // Morphism IDs
+    /// Alternative path of morphism IDs
     pub path2: Vec<String>, // Alternative morphism IDs
+    /// Human-readable description of the law
     pub description: String,
 }
 
 /// Status of proof validation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ProofStatus {
+    /// Proof is complete and valid
     Proven,
+    /// Proof has been shown to be invalid
     Disproven,
+    /// Proof is partially complete
     Partial,
+    /// Proof status is not yet determined
     Unknown,
 }
 
@@ -219,6 +250,7 @@ impl MathematicalProof {
 }
 
 /// Proof builder for constructing proofs step by step
+#[derive(Debug)]
 pub struct ProofBuilder {
     proof: MathematicalProof,
 }

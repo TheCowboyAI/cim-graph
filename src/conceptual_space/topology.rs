@@ -13,10 +13,15 @@ use super::types::Point3;
 /// Topology of the conceptual space derived from graph structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpaceTopology {
+    /// Current type of topology
     pub topology_type: TopologyType,
+    /// Topological genus (number of holes)
     pub genus: i32,
+    /// Euler characteristic of the manifold
     pub euler_characteristic: i32,
+    /// Dimension of the manifold
     pub manifold_dimension: usize,
+    /// Whether the surface is orientable
     pub is_orientable: bool,
 }
 
@@ -31,16 +36,21 @@ pub enum TopologyType {
     LineSegment,
     /// Three or more concepts - spherical topology with Voronoi tessellation
     SphericalVoronoi {
+        /// Radius of the conceptual sphere
         radius: f64,
+        /// Positions of concepts on the sphere
         concept_positions: Vec<Point3<f64>>,
     },
     /// Complex topology when concepts create overlaps
     ComplexManifold {
+        /// Number of holes in the manifold
         genus: i32,
+        /// Critical points in the topology
         critical_points: Vec<Point3<f64>>,
     },
     /// Non-orientable when concept relationships create twists
     NonOrientable {
+        /// Type of non-orientable surface
         surface_type: NonOrientableSurfaceType,
     },
 }
@@ -48,18 +58,26 @@ pub enum TopologyType {
 /// Non-orientable surface types
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum NonOrientableSurfaceType {
+    /// Klein bottle topology
     KleinBottle,
+    /// Projective plane topology
     ProjectivePlane,
+    /// Mobius strip topology
     MobiusStrip,
 }
 
 /// History of topology changes driven by events
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TopologyTransition {
+    /// Unique identifier for this transition
     pub event_id: String,
+    /// Previous topology type
     pub from_topology: TopologyType,
+    /// New topology type
     pub to_topology: TopologyType,
+    /// Mathematical proof justifying the transition
     pub mathematical_proof: String,
+    /// Unix timestamp of the transition
     pub timestamp: u64,
 }
 

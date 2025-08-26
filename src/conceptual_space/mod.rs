@@ -32,34 +32,52 @@ use std::collections::HashMap;
 /// The main ConceptualSpace trait that all implementations must satisfy
 pub trait ConceptualSpace {
     // Topology management
+    /// Returns the current topology of this conceptual space
     fn current_topology(&self) -> &SpaceTopology;
+    /// Analyzes and returns the type of the current topology
     fn analyze_topology(&self) -> TopologyType;
+    /// Evolves the topology based on the given event
     fn evolve_topology(&mut self, event: ConceptualSpaceEvent) -> Result<TopologyTransition>;
     
     // Voronoi tessellation
+    /// Computes the Voronoi tessellation of the conceptual space
     fn tessellate(&mut self) -> Result<SphericalVoronoiTessellation>;
+    /// Updates the tessellation when a new concept is added
     fn update_tessellation(&mut self, concept: ConceptNode) -> Result<()>;
     
     // Mathematical proof generation
+    /// Generates a mathematical proof of the space's consistency
     fn generate_proof(&self) -> MathematicalProof;
+    /// Validates the consistency of the conceptual space
     fn validate_consistency(&self) -> Result<ValidationResult>;
     
     // Event sourcing
+    /// Applies an event to update the conceptual space
     fn apply_event(&mut self, event: ConceptualSpaceEvent) -> Result<()>;
+    /// Returns all events since the specified version
     fn events_since(&self, version: u64) -> Vec<ConceptualSpaceEvent>;
 }
 
 /// The primary implementation using cim-graph's projection engine
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CimGraphConceptualSpace {
+    /// Unique identifier for this conceptual space
     pub space_id: String,
+    /// Current topological configuration of the space
     pub current_topology: SpaceTopology,
+    /// History of all topology transitions
     pub topology_history: Vec<TopologyTransition>,
+    /// Current Voronoi tessellation of the space
     pub voronoi_tessellation: Option<SphericalVoronoiTessellation>,
+    /// Quality dimensions defining the metric of the space
     pub quality_dimensions: Vec<QualityDimension>,
+    /// Emergent patterns detected in the conceptual space
     pub emergent_patterns: Vec<EmergentPattern>,
+    /// Complete event log for event sourcing
     pub event_log: Vec<ConceptualSpaceEvent>,
+    /// All concept nodes in the space
     pub concepts: HashMap<String, ConceptNode>,
+    /// All edges connecting concepts
     pub edges: HashMap<String, ConceptEdge>,
 }
 
