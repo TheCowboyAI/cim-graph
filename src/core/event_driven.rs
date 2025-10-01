@@ -3,9 +3,10 @@
 //! This is THE ONLY WAY graphs work in CIM. There are no direct state mutations.
 //! All changes flow through: Command → Event → State Change
 //! 
-//! Events are streamed through NATS JetStream with subjects defined by cim-subject.
+//! Events are streamed through NATS JetStream with subjects defined by cim-domain's subject module.
 
 use serde::{Deserialize, Serialize};
+use cim_domain::{Subject, SubjectSegment};
 use uuid::Uuid;
 use chrono::{DateTime, Utc};
 use crate::core::GraphType;
@@ -73,7 +74,7 @@ pub struct GraphEvent {
     /// Stream sequence number from NATS JetStream
     pub sequence: u64,
     
-    /// Subject following cim-subject algebra (e.g., "graph.workflow.created")
+    /// Subject following cim-domain's subject module (e.g., "graph.workflow.created")
     pub subject: String,
     
     /// When this event occurred
@@ -269,9 +270,19 @@ pub trait EventHandler {
     fn handle(&mut self, event: &GraphEvent);
 }
 
-/// Subject builder following cim-subject algebra
+/// Subject builder using cim-domain's subject module conventions
 pub fn build_subject(graph_type: GraphType, event_type: &str) -> String {
-    format!("graph.{}.{}", graph_type.as_str(), event_type)
+    // Compose: cim.graph.{type}.{event[.subevent...]}
+    let mut segments = Vec::new();
+    segments.push(SubjectSegment::new("cim").unwrap());
+    segments.push(SubjectSegment::new("graph").unwrap());
+    segments.push(SubjectSegment::new(graph_type.as_str()).unwrap());
+    for part in event_type.split('.') {
+        segments.push(SubjectSegment::new(part).unwrap());
+    }
+    Subject::from_segments(segments)
+        .expect("valid subject segments")
+        .to_string()
 }
 
 #[cfg(test)]

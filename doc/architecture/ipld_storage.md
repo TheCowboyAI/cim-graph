@@ -62,7 +62,7 @@ The power of CID chains:
 - Handles IPLD codec operations
 - Provides CID verification
 
-### 3. cim-subject
+### 3. cim-domain subject module
 - Defines NATS subject algebra for events
 - Routes events to proper streams
 - Manages subject hierarchies

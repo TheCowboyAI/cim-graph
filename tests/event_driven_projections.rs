@@ -6,6 +6,7 @@ use cim_graph::{
 };
 use std::collections::HashMap;
 use uuid::Uuid;
+use cim_domain::{Subject, SubjectSegment};
 
 #[test]
 fn test_workflow_projection_from_events() {
@@ -100,7 +101,14 @@ fn test_state_machine_command_validation() {
         },
     };
     
-    let subject = format!("graph.{}.events", aggregate_id);
+    let subject = Subject::from_segments(vec![
+        SubjectSegment::new("cim").unwrap(),
+        SubjectSegment::new("graph").unwrap(),
+        SubjectSegment::new(aggregate_id.to_string()).unwrap(),
+        SubjectSegment::new("events").unwrap(),
+    ])
+    .unwrap()
+    .to_string();
     let projection = GraphAggregateProjection::new(aggregate_id, subject);
     let result = state_machine.handle_command(invalid_command, &projection);
     

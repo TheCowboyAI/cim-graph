@@ -1,9 +1,10 @@
-//! Event subjects using cim-subject algebra
+//! Event subjects using cim-domain's subject module
 //!
 //! This module defines all NATS subjects used in the event-driven graph system
-//! using cim-subject's type-safe subject algebra.
+//! using cim-domain's subject module for type-safe subject algebra.
 
 use uuid::Uuid;
+use cim_domain::{Subject, SubjectPattern};
 
 /// Root subject component for all graph events
 pub const GRAPH_ROOT: &str = "cim.graph";
@@ -79,48 +80,52 @@ pub fn build_event_subject(
     aggregate_id: Uuid,
     event_type: EventType,
 ) -> String {
-    format!(
-        "{}.{}.{}.{}",
-        GRAPH_ROOT,
-        graph_type.as_str(),
-        aggregate_id,
-        event_type.as_str()
-    )
+    // Build via cim-domain's Subject to enforce validation
+    let subject = Subject::from_segments([
+        // Graph root segments
+        cim_domain::SubjectSegment::new("cim").unwrap(),
+        cim_domain::SubjectSegment::new("graph").unwrap(),
+        // Graph type
+        cim_domain::SubjectSegment::new(graph_type.as_str()).unwrap(),
+        // Aggregate as segment
+        cim_domain::SubjectSegment::new(aggregate_id.to_string()).unwrap(),
+        // Event type
+        cim_domain::SubjectSegment::new(event_type.as_str()).unwrap(),
+    ].into_iter()).expect("valid subject segments");
+    subject.to_string()
 }
 
 /// Build a subject for subscribing to all events of a specific graph
 pub fn build_graph_subscription(graph_type: GraphType, aggregate_id: Uuid) -> String {
-    format!(
-        "{}.{}.{}.*",
-        GRAPH_ROOT,
-        graph_type.as_str(),
-        aggregate_id
-    )
+    // Validate via SubjectPattern semantics
+    let pattern_str = format!("{}.{}.{}.*", GRAPH_ROOT, graph_type.as_str(), aggregate_id);
+    let _ = SubjectPattern::parse(&pattern_str).expect("valid subject pattern");
+    pattern_str
 }
 
 /// Build a subject for subscribing to all events of a graph type
 pub fn build_type_subscription(graph_type: GraphType) -> String {
-    format!(
-        "{}.{}.>",
-        GRAPH_ROOT,
-        graph_type.as_str()
-    )
+    let pattern_str = format!("{}.{}.>", GRAPH_ROOT, graph_type.as_str());
+    let _ = SubjectPattern::parse(&pattern_str).expect("valid subject pattern");
+    pattern_str
 }
 
 /// Build a subject for subscribing to all graph events
 pub fn build_all_events_subscription() -> String {
-    format!("{}.>", GRAPH_ROOT)
+    let pattern_str = format!("{}.>", GRAPH_ROOT);
+    let _ = SubjectPattern::parse(&pattern_str).expect("valid subject pattern");
+    pattern_str
 }
 
 /// Parse an event subject back into its components
 pub fn parse_event_subject(subject: &str) -> Result<(GraphType, Uuid, EventType), String> {
-    let parts: Vec<&str> = subject.split('.').collect();
-    
-    if parts.len() != 4 || parts[0] != "cim" || parts[1] != "graph" {
+    let parsed = Subject::parse(subject).map_err(|e| e.to_string())?;
+    let segs: Vec<_> = parsed.segments().map(|s| s.as_str()).collect();
+    // Expected: cim.graph.{type}.{uuid}.{event}
+    if segs.len() != 5 || segs[0] != "cim" || segs[1] != "graph" {
         return Err("Invalid subject format".to_string());
     }
-    
-    let graph_type = match parts[2] {
+    let graph_type = match segs[2] {
         "ipld" => GraphType::Ipld,
         "context" => GraphType::Context,
         "workflow" => GraphType::Workflow,
@@ -128,11 +133,8 @@ pub fn parse_event_subject(subject: &str) -> Result<(GraphType, Uuid, EventType)
         "composed" => GraphType::Composed,
         _ => return Err("Unknown graph type".to_string()),
     };
-    
-    let aggregate_id = Uuid::parse_str(parts[3])
-        .map_err(|_| "Invalid UUID in subject".to_string())?;
-    
-    let event_type = match parts[4] {
+    let aggregate_id = Uuid::parse_str(segs[3]).map_err(|_| "Invalid UUID in subject".to_string())?;
+    let event_type = match segs[4] {
         "created" => EventType::Created,
         "updated" => EventType::Updated,
         "deleted" => EventType::Deleted,
@@ -143,7 +145,6 @@ pub fn parse_event_subject(subject: &str) -> Result<(GraphType, Uuid, EventType)
         "state_changed" => EventType::StateChanged,
         _ => return Err("Unknown event type".to_string()),
     };
-    
     Ok((graph_type, aggregate_id, event_type))
 }
 

@@ -152,7 +152,7 @@ This plan details the systematic refactoring of cim-graph to align with CIM's ev
    - Replay from sequence
    - Catchup mechanism
 
-3. **cim-subject integration** ⏳
+3. **cim-domain subject module integration** ⏳
    - Subject algebra
    - Graph subjects
    - Event routing
@@ -239,7 +239,7 @@ This plan details the systematic refactoring of cim-graph to align with CIM's ev
 
 ### External Dependencies
 - `cim-ipld` - For CID generation
-- `cim-subject` - For subject algebra
+- `cim-domain` (subject module) - For subject algebra
 - `cim-domain` - For event patterns
 - `nats` - For JetStream client
 

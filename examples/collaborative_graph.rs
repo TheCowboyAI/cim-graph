@@ -8,6 +8,7 @@
 
 use cim_graph::core::event_driven::*;
 use uuid::Uuid;
+use cim_domain::{Subject, SubjectSegment};
 use chrono::Utc;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -164,7 +165,12 @@ fn main() {
     
     // Create shared event stream (would be NATS JetStream)
     let aggregate_id = Uuid::new_v4();
-    let subject = format!("graph.{}.events", aggregate_id);
+    let subject = Subject::from_segments(vec![
+        SubjectSegment::new("cim").unwrap(),
+        SubjectSegment::new("graph").unwrap(),
+        SubjectSegment::new(aggregate_id.to_string()).unwrap(),
+        SubjectSegment::new("events").unwrap(),
+    ]).unwrap().to_string();
     let event_stream = Arc::new(CollaborativeEventStream::new(&subject));
     
     // Create multiple collaborative clients

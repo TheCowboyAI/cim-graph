@@ -13,6 +13,8 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use uuid::Uuid;
+use cim_domain::{Subject, SubjectSegment, SubjectPattern};
+use crate::channels::{default_prefix, channel_for_entity, validate_pattern};
 
 /// NATS-specific errors
 #[derive(Debug, thiserror::Error)]
@@ -72,7 +74,7 @@ impl Default for JetStreamConfig {
         Self {
             server_url: "localhost:4222".to_string(),
             stream_name: "CIM_GRAPH_EVENTS".to_string(),
-            subject_prefix: "cim.graph".to_string(),
+            subject_prefix: default_prefix(),
             max_age_secs: 86400 * 30, // 30 days
             enable_dedup: true,
         }
@@ -156,7 +158,10 @@ impl JetStreamEventStore {
     
     /// Ensure the stream exists with proper configuration
     async fn ensure_stream(&self) -> Result<()> {
-        let subjects = vec![format!("{}.>", self.config.subject_prefix)];
+        let all_subjects = format!("{}.>", self.config.subject_prefix);
+        validate_pattern(&all_subjects)
+            .map_err(|e| NatsError::JetStreamError(e))?;
+        let subjects = vec![all_subjects];
         
         let mut stream_config = jetstream::stream::Config {
             name: self.config.stream_name.clone(),
@@ -185,13 +190,11 @@ impl JetStreamEventStore {
         // Determine event type and graph type from payload
         let (event_type, graph_type) = determine_event_type(&event.payload);
         
-        // Build subject using configured prefix
-        let subject = format!(
-            "{}.{}.{}.{}",
-            self.config.subject_prefix,
-            format!("{:?}", graph_type).to_lowercase(),
-            event.aggregate_id,
-            format!("{:?}", event_type).to_lowercase()
+        // Publish to entity channel: {prefix}.{aggregate}.{aggregate_id}
+        let subject = channel_for_entity(
+            &self.config.subject_prefix,
+            &format!("{:?}", graph_type).to_lowercase(),
+            &event.aggregate_id.to_string(),
         );
         
         // For compatibility, also store string representations
@@ -254,7 +257,9 @@ impl JetStreamEventStore {
         
         // Create consumer for this aggregate
         let consumer_name = format!("cim-graph-{}", aggregate_id);
-        let filter_subject = format!("{}.*.{}.*", self.config.subject_prefix, aggregate_id);
+        let filter_subject = format!("{}.*.{}", self.config.subject_prefix, aggregate_id);
+        validate_pattern(&filter_subject)
+            .map_err(|e| NatsError::ConsumerError(e))?;
         
         let consumer: PullConsumer = stream
             .get_or_create_consumer(&consumer_name, jetstream::consumer::pull::Config {
@@ -339,7 +344,9 @@ impl JetStreamEventStore {
     /// Subscribe to events for real-time updates
     pub async fn subscribe_to_aggregate(&self, aggregate_id: Uuid) -> Result<EventSubscription> {
         // Use wildcard to subscribe to all event types for this aggregate
-        let filter_subject = format!("{}.*.{}.*", self.config.subject_prefix, aggregate_id);
+        let filter_subject = format!("{}.*.{}", self.config.subject_prefix, aggregate_id);
+        validate_pattern(&filter_subject)
+            .map_err(|e| NatsError::SubscriptionError(e))?;
         
         let subscriber = self.client
             .subscribe(filter_subject)
@@ -359,11 +366,12 @@ impl JetStreamEventStore {
         aggregate_id: Uuid,
     ) -> Result<EventSubscription> {
         let filter_subject = format!(
-            "{}.{}.{}.*",
+            "{}.{}.*",
             self.config.subject_prefix,
-            format!("{:?}", graph_type).to_lowercase(),
-            aggregate_id
+            format!("{:?}", graph_type).to_lowercase()
         );
+        validate_pattern(&filter_subject)
+            .map_err(|e| NatsError::SubscriptionError(e))?;
         
         let subscriber = self.client
             .subscribe(filter_subject)

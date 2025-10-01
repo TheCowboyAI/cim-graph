@@ -5,7 +5,7 @@
 //! - Events are facts that have happened
 //! - State ONLY changes through events
 //! - NATS JetStream is the event store
-//! - cim-subject defines the subject algebra
+//! - cim-domain subject module defines the subject algebra
 
 use cim_graph::core::event_driven::*;
 use cim_graph::core::GraphType;
@@ -235,6 +235,6 @@ fn main() {
     println!("✓ State ONLY changes through events");
     println!("✓ Projections can be rebuilt from events");
     println!("✓ NATS JetStream would persist the event stream");
-    println!("✓ cim-subject defines the subject hierarchy");
+    println!("✓ cim-domain subject module defines the subject hierarchy");
     println!("\n🚫 There is NO other way to modify graphs in CIM!");
 }

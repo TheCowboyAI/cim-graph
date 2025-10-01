@@ -22,6 +22,7 @@ use cim_graph::{
 };
 use std::collections::HashMap;
 use uuid::Uuid;
+use cim_domain::{Subject, SubjectSegment};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== CIM Graph Event-Driven Architecture Demo ===\n");
@@ -330,9 +331,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     // 10. Demonstrate aggregate projection
     println!("\n--- Aggregate Projection ---");
+    let subject = Subject::from_segments(vec![
+        SubjectSegment::new("cim").unwrap(),
+        SubjectSegment::new("graph").unwrap(),
+        SubjectSegment::new(workflow_id.to_string()).unwrap(),
+        SubjectSegment::new("events").unwrap(),
+    ]).unwrap().to_string();
     let mut aggregate_projection = GraphAggregateProjection::new(
         workflow_id,
-        format!("graph.{}.events", workflow_id),
+        subject,
     );
     
     // Apply events to aggregate projection

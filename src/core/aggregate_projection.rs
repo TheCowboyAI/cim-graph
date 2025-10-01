@@ -7,6 +7,7 @@
 //! - State transitions ONLY through StateMachine
 
 use crate::events::{GraphEvent, EventPayload};
+use cim_domain::{Subject, SubjectSegment};
 use uuid::Uuid;
 use std::collections::HashMap;
 use serde::{Serialize, Deserialize};
@@ -176,7 +177,14 @@ pub fn build_projection(events: Vec<(GraphEvent, u64)>) -> GraphAggregateProject
     
     let first_event = &events[0].0;
     let aggregate_id = first_event.aggregate_id;
-    let subject = format!("graph.{}.events", aggregate_id); // Would come from cim-subject
+    let subject = Subject::from_segments(vec![
+        SubjectSegment::new("cim").unwrap(),
+        SubjectSegment::new("graph").unwrap(),
+        SubjectSegment::new(aggregate_id.to_string()).unwrap(),
+        SubjectSegment::new("events").unwrap(),
+    ])
+    .expect("valid subject segments")
+    .to_string();
     
     let mut projection = GraphAggregateProjection::new(aggregate_id, subject);
     

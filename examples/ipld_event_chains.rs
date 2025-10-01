@@ -9,6 +9,7 @@
 use cim_graph::graphs::{Cid, EventChainBuilder, CidGenerator};
 use cim_graph::core::{CimGraphEvent, EventData};
 use uuid::Uuid;
+use cim_domain::{Subject, SubjectSegment};
 use chrono::Utc;
 use std::collections::HashMap;
 
@@ -59,7 +60,12 @@ fn main() {
         event_id: Uuid::new_v4(),
         aggregate_id,
         sequence: 1,
-        subject: format!("graph.{}.events", aggregate_id),
+        subject: Subject::from_segments(vec![
+            SubjectSegment::new("cim").unwrap(),
+            SubjectSegment::new("graph").unwrap(),
+            SubjectSegment::new(aggregate_id.to_string()).unwrap(),
+            SubjectSegment::new("events").unwrap(),
+        ]).unwrap().to_string(),
         timestamp: Utc::now(),
         correlation_id,
         causation_id: None,
@@ -78,7 +84,12 @@ fn main() {
         event_id: Uuid::new_v4(),
         aggregate_id,
         sequence: 2,
-        subject: format!("graph.{}.events", aggregate_id),
+        subject: Subject::from_segments(vec![
+            SubjectSegment::new("cim").unwrap(),
+            SubjectSegment::new("graph").unwrap(),
+            SubjectSegment::new(aggregate_id.to_string()).unwrap(),
+            SubjectSegment::new("events").unwrap(),
+        ]).unwrap().to_string(),
         timestamp: Utc::now(),
         correlation_id,
         causation_id: Some(event1.event_id),
@@ -98,7 +109,12 @@ fn main() {
         event_id: Uuid::new_v4(),
         aggregate_id,
         sequence: 3,
-        subject: format!("graph.{}.events", aggregate_id),
+        subject: Subject::from_segments(vec![
+            SubjectSegment::new("cim").unwrap(),
+            SubjectSegment::new("graph").unwrap(),
+            SubjectSegment::new(aggregate_id.to_string()).unwrap(),
+            SubjectSegment::new("events").unwrap(),
+        ]).unwrap().to_string(),
         timestamp: Utc::now(),
         correlation_id,
         causation_id: Some(event2.event_id),
@@ -118,7 +134,12 @@ fn main() {
         event_id: Uuid::new_v4(),
         aggregate_id,
         sequence: 4,
-        subject: format!("graph.{}.events", aggregate_id),
+        subject: Subject::from_segments(vec![
+            SubjectSegment::new("cim").unwrap(),
+            SubjectSegment::new("graph").unwrap(),
+            SubjectSegment::new(aggregate_id.to_string()).unwrap(),
+            SubjectSegment::new("events").unwrap(),
+        ]).unwrap().to_string(),
         timestamp: Utc::now(),
         correlation_id,
         causation_id: Some(event3.event_id),
@@ -192,7 +213,7 @@ fn main() {
     println!("\n🏗️  System Integration:");
     println!("   cim-graph     → Defines graph events and projections");
     println!("   cim-ipld      → Generates CIDs and manages Merkle DAGs");
-    println!("   cim-subject   → Defines NATS subject algebra");
+    println!("   cim-domain (subject module) → Defines NATS subject algebra");
     println!("   NATS JetStream → Persists events with CID indexing");
     println!("\n   Result: Complete event history retrievable by single CID!");
 }

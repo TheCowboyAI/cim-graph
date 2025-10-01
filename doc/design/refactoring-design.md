@@ -165,7 +165,7 @@ Command → StateMachine → Validate → Events → JetStream → Projections
 
 ### Phase 6: NATS Integration
 - [ ] JetStream event persistence
-- [ ] Subject algebra from cim-subject
+- [ ] Subject algebra from cim-domain subject module
 - [ ] Event replay/catchup
 - [ ] Collaborative subscriptions
 
@@ -232,7 +232,7 @@ jetstream.publish(events);
 | Breaking API changes | High | Provide compatibility layer during transition |
 | Performance concerns | Medium | Projection caching, efficient fold algorithms |
 | Learning curve | Medium | Comprehensive examples and documentation |
-| Integration complexity | Low | Clear integration points with cim-ipld, cim-subject |
+| Integration complexity | Low | Clear integration points with cim-ipld, cim-domain subject module |
 
 ## Timeline
 

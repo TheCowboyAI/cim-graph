@@ -10,6 +10,7 @@ use cim_graph::core::aggregate_projection::{query_entities_with_component, get_e
 use cim_graph::core::state_machine::{GraphStateMachine, process_command};
 use cim_graph::events::{GraphEvent, GraphCommand, EventPayload, IpldPayload};
 use uuid::Uuid;
+use cim_domain::{Subject, SubjectSegment};
 
 fn main() {
     println!("=== ECS + DDD Graph System Example ===\n");
@@ -25,7 +26,14 @@ fn main() {
     let mut state_machine = GraphStateMachine::new();
     
     // Start with empty projection
-    let subject = format!("graph.{}.events", aggregate_id);
+    let subject = Subject::from_segments(vec![
+        SubjectSegment::new("cim").unwrap(),
+        SubjectSegment::new("graph").unwrap(),
+        SubjectSegment::new(aggregate_id.to_string()).unwrap(),
+        SubjectSegment::new("events").unwrap(),
+    ])
+    .unwrap()
+    .to_string();
     let mut projection = GraphAggregateProjection::new(aggregate_id, subject.clone());
     
     // Simulate events from JetStream (with sequence numbers)

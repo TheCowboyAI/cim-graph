@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2025-10-01
+
+### Changed
+- Replaced deprecated `cim-subject` with `cim-domain` subject module (v0.7.8).
+- Updated docs, examples, and tests to reference `cim-domain`’s subject module.
+
+### Removed
+- Removed dependency on `cim-subject`.
+
+### Dependency
+- `cim-domain` pinned to tag `v0.7.8` over SSH (`ssh://git@github.com/TheCowboyAI/cim-domain.git`).
+
 ## [0.1.0] - 2025-08-04
 
 ### Added
@@ -44,5 +56,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `chrono` 0.4 - Timestamp handling
 - `thiserror` 1.0 - Error handling
 
-[Unreleased]: https://github.com/thecowboyai/cim-graph/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/thecowboyai/cim-graph/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/thecowboyai/cim-graph/releases/tag/v0.5.0
 [0.1.0]: https://github.com/thecowboyai/cim-graph/releases/tag/v0.1.0

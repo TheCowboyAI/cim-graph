@@ -216,7 +216,7 @@ async fn main() -> Result<()> {
              correlated.len(), correlation_id);
     
     // 11. Demonstrate subject patterns
-    println!("\n11. Subject patterns with cim-subject:");
+    println!("\n11. Subject patterns via cim-domain subject module:");
     
     // Show how subjects are built for different event types
     let created_subject = build_event_subject(
@@ -249,7 +249,7 @@ async fn main() -> Result<()> {
     println!("- Projections are built by replaying events");
     println!("- Policies automate CID generation and validation");
     println!("- Real-time subscriptions enable reactive systems");
-    println!("- cim-subject provides type-safe event routing");
+    println!("- cim-domain subject module provides type-safe event routing");
     
     Ok(())
 }

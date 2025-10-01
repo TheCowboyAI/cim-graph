@@ -1,4 +1,4 @@
-//! Integration tests for cim-subject integration
+//! Integration tests for cim-domain subject module integration
 
 #[cfg(feature = "nats")]
 mod tests {

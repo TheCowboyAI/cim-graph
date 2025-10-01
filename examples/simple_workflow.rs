@@ -10,6 +10,7 @@ use cim_graph::{
     graphs::workflow::{WorkflowNode, WorkflowEdge},
 };
 use uuid::Uuid;
+use cim_domain::{Subject, SubjectSegment};
 use chrono::Utc;
 use std::collections::HashMap;
 
@@ -24,7 +25,11 @@ fn main() {
         event_id: Uuid::new_v4(),
         aggregate_id: workflow_id,
         sequence: 1,
-        subject: "cim.graph.workflow.initialized".to_string(),
+        subject: Subject::from_segments(vec![
+            SubjectSegment::new("cim").unwrap(),
+            SubjectSegment::new("graph").unwrap(),
+            SubjectSegment::new("workflow").unwrap(),
+        ]).unwrap().to_string(),
         timestamp: Utc::now(),
         correlation_id,
         causation_id: None,
@@ -45,7 +50,11 @@ fn main() {
             event_id: Uuid::new_v4(),
             aggregate_id: workflow_id,
             sequence: 2,
-            subject: "cim.graph.workflow.node.added".to_string(),
+            subject: Subject::from_segments(vec![
+                SubjectSegment::new("cim").unwrap(),
+                SubjectSegment::new("graph").unwrap(),
+                SubjectSegment::new("workflow").unwrap(),
+            ]).unwrap().to_string(),
             timestamp: Utc::now(),
             correlation_id,
             causation_id: Some(init_event.event_id),
@@ -59,7 +68,11 @@ fn main() {
             event_id: Uuid::new_v4(),
             aggregate_id: workflow_id,
             sequence: 3,
-            subject: "cim.graph.workflow.node.added".to_string(),
+            subject: Subject::from_segments(vec![
+                SubjectSegment::new("cim").unwrap(),
+                SubjectSegment::new("graph").unwrap(),
+                SubjectSegment::new("workflow").unwrap(),
+            ]).unwrap().to_string(),
             timestamp: Utc::now(),
             correlation_id,
             causation_id: Some(init_event.event_id),
@@ -73,7 +86,11 @@ fn main() {
             event_id: Uuid::new_v4(),
             aggregate_id: workflow_id,
             sequence: 4,
-            subject: "cim.graph.workflow.node.added".to_string(),
+            subject: Subject::from_segments(vec![
+                SubjectSegment::new("cim").unwrap(),
+                SubjectSegment::new("graph").unwrap(),
+                SubjectSegment::new("workflow").unwrap(),
+            ]).unwrap().to_string(),
             timestamp: Utc::now(),
             correlation_id,
             causation_id: Some(init_event.event_id),
@@ -91,7 +108,11 @@ fn main() {
             event_id: Uuid::new_v4(),
             aggregate_id: workflow_id,
             sequence: 5,
-            subject: "cim.graph.workflow.edge.added".to_string(),
+            subject: Subject::from_segments(vec![
+                SubjectSegment::new("cim").unwrap(),
+                SubjectSegment::new("graph").unwrap(),
+                SubjectSegment::new("workflow").unwrap(),
+            ]).unwrap().to_string(),
             timestamp: Utc::now(),
             correlation_id,
             causation_id: Some(state_events[0].event_id),
@@ -107,7 +128,11 @@ fn main() {
             event_id: Uuid::new_v4(),
             aggregate_id: workflow_id,
             sequence: 6,
-            subject: "cim.graph.workflow.edge.added".to_string(),
+            subject: Subject::from_segments(vec![
+                SubjectSegment::new("cim").unwrap(),
+                SubjectSegment::new("graph").unwrap(),
+                SubjectSegment::new("workflow").unwrap(),
+            ]).unwrap().to_string(),
             timestamp: Utc::now(),
             correlation_id,
             causation_id: Some(state_events[1].event_id),

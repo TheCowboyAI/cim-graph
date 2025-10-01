@@ -214,7 +214,22 @@ impl VoronoiCell {
                         midpoint.y / magnitude,
                         midpoint.z / magnitude,
                     );
-                    vertices.push(normalized);
+
+                    // Use vector math to ensure we only keep vertices that are not collinear
+                    // with the center→other great-circle direction (robustness against duplicate points).
+                    let c = nalgebra::Vector3::new(center.x, center.y, center.z);
+                    let o = nalgebra::Vector3::new(other.x, other.y, other.z);
+                    let normal_na = c.cross(&o);
+                    let normal: Vector3<f64> = normal_na.into();
+                    if normal.magnitude() > 1e-10 {
+                        // Also ensure this vertex is locally distinct from existing ones
+                        if !vertices.iter().any(|v: &Point3<f64>| {
+                            let dv = Vector3::new(v.x - normalized.x, v.y - normalized.y, v.z - normalized.z);
+                            dv.magnitude() < 1e-8
+                        }) {
+                            vertices.push(normalized);
+                        }
+                    }
                 }
             }
         }
@@ -240,11 +255,26 @@ impl VoronoiCell {
         _center: &Point3<f64>,
         all_positions: &[Point3<f64>],
     ) -> Result<f64> {
-        // Simplified: equal area distribution
-        // In a full implementation, would compute spherical polygon area
-        let total_area = 4.0 * std::f64::consts::PI;
-        let num_cells = all_positions.len() as f64;
-        Ok(total_area / num_cells)
+        // Approximate local Voronoi area by spherical cap with radius r = 0.5 * d_min,
+        // where d_min is the geodesic distance to the nearest neighbor.
+        let mut d_min = std::f64::consts::PI; // upper bound (antipode)
+        for other in all_positions {
+            if other != center {
+                let d = SphericalEdge::compute_geodesic_distance(center, other);
+                if d < d_min { d_min = d; }
+            }
+        }
+
+        // If isolated or single point, distribute evenly
+        if !d_min.is_finite() || all_positions.len() <= 1 {
+            let total_area = 4.0 * std::f64::consts::PI;
+            return Ok(total_area / all_positions.len().max(1) as f64);
+        }
+
+        let r = 0.5 * d_min;
+        // Spherical cap area A = 2π(1 - cos r)
+        let area = 2.0 * std::f64::consts::PI * (1.0 - r.cos());
+        Ok(area)
     }
 
     /// Compute influence strength based on concept properties

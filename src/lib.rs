@@ -104,6 +104,9 @@ pub mod contexts;
 #[cfg_attr(docsrs, doc(cfg(feature = "nats")))]
 pub mod nats;
 
+/// Subject channel helpers (default patterns and builders)
+pub mod channels;
+
 /// Event stream optimization utilities
 pub mod optimization;
 

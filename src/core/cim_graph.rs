@@ -60,7 +60,7 @@ pub struct GraphEvent {
     /// Event sequence number (from NATS JetStream)
     pub sequence: u64,
     
-    /// NATS subject (from cim-subject algebra)
+    /// NATS subject (from cim-domain's subject module)
     pub subject: String,
     
     /// When this happened
