@@ -34,7 +34,7 @@ maintenance = { status = "actively-developed" }
 
 [dependencies]
 # CIM Domain (subject algebra absorbed here in 0.7+)
-cim-domain = { git = "ssh://git@github.com/TheCowboyAI/cim-domain.git", tag = "v0.7.8" }
+cim-domain = { git = "ssh://git@github.com/TheCowboyAI/cim-domain.git", tag = "v0.8.1" }
 
 # Core dependencies
 thiserror = "1.0"
