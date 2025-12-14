@@ -765,10 +765,22 @@ mod tests {
     // Integration Tests (Require NATS Server)
     // ========================================================================
 
+    /// Create a unique test config to avoid conflicts with existing streams
+    fn test_config() -> JetStreamConfig {
+        let test_id = Uuid::new_v4().to_string()[..8].to_string();
+        JetStreamConfig {
+            server_url: "localhost:4222".to_string(),
+            stream_name: format!("CIM_GRAPH_TEST_{}", test_id),
+            subject_prefix: format!("test.cim.graph.{}", test_id),
+            max_age_secs: 3600, // 1 hour for tests
+            enable_dedup: true,
+        }
+    }
+
     #[tokio::test]
     #[ignore] // Requires NATS server
     async fn test_jetstream_connection() {
-        let config = JetStreamConfig::default();
+        let config = test_config();
         let store = JetStreamEventStore::new(config).await;
         assert!(store.is_ok());
     }
@@ -778,7 +790,7 @@ mod tests {
     async fn test_publish_and_fetch() {
         use crate::events::GenericPayload;
 
-        let config = JetStreamConfig::default();
+        let config = test_config();
         let store = JetStreamEventStore::new(config).await.unwrap();
 
         let aggregate_id = Uuid::new_v4();
@@ -802,5 +814,112 @@ mod tests {
         let events = store.fetch_events(aggregate_id).await.unwrap();
         assert!(!events.is_empty());
         assert_eq!(events[0].event_id, event.event_id);
+    }
+
+    #[tokio::test]
+    #[ignore] // Requires NATS server
+    async fn test_subscribe_to_aggregate() {
+        use crate::events::GenericPayload;
+
+        let config = test_config();
+        let store = JetStreamEventStore::new(config).await.unwrap();
+
+        let aggregate_id = Uuid::new_v4();
+
+        // Subscribe before publishing
+        let subscription = store.subscribe_to_aggregate(aggregate_id).await.unwrap();
+        assert_eq!(subscription.aggregate_id(), aggregate_id);
+
+        // Publish an event
+        let event = GraphEvent {
+            event_id: Uuid::new_v4(),
+            aggregate_id,
+            correlation_id: Uuid::new_v4(),
+            causation_id: None,
+            payload: EventPayload::Generic(GenericPayload {
+                event_type: "SubscriptionTest".to_string(),
+                data: serde_json::json!({ "subscribed": true }),
+            }),
+        };
+
+        let seq = store.publish_event(event.clone(), None).await.unwrap();
+        assert!(seq > 0);
+
+        // Note: Core NATS subscriptions may not receive JetStream messages
+        // This test verifies subscription setup works
+    }
+
+    #[tokio::test]
+    #[ignore] // Requires NATS server
+    async fn test_correlation_id_fetch() {
+        use crate::events::GenericPayload;
+
+        let config = test_config();
+        let store = JetStreamEventStore::new(config).await.unwrap();
+
+        let correlation_id = Uuid::new_v4();
+        let aggregate_id = Uuid::new_v4();
+
+        // Publish multiple events with same correlation ID
+        for i in 0..3 {
+            let event = GraphEvent {
+                event_id: Uuid::new_v4(),
+                aggregate_id,
+                correlation_id,
+                causation_id: None,
+                payload: EventPayload::Generic(GenericPayload {
+                    event_type: format!("CorrelatedEvent{}", i),
+                    data: serde_json::json!({ "index": i }),
+                }),
+            };
+            store.publish_event(event, None).await.unwrap();
+        }
+
+        // Small delay for message delivery
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        // Fetch by correlation ID
+        let events = store.fetch_by_correlation(correlation_id).await.unwrap();
+        assert_eq!(events.len(), 3);
+        for event in &events {
+            assert_eq!(event.correlation_id, correlation_id);
+        }
+    }
+
+    #[tokio::test]
+    #[ignore] // Requires NATS server
+    async fn test_replay_consumer() {
+        use crate::events::GenericPayload;
+
+        let config = test_config();
+        let store = JetStreamEventStore::new(config).await.unwrap();
+
+        let aggregate_id = Uuid::new_v4();
+
+        // Publish several events
+        for i in 0..5 {
+            let event = GraphEvent {
+                event_id: Uuid::new_v4(),
+                aggregate_id,
+                correlation_id: Uuid::new_v4(),
+                causation_id: None,
+                payload: EventPayload::Generic(GenericPayload {
+                    event_type: format!("ReplayEvent{}", i),
+                    data: serde_json::json!({ "sequence": i }),
+                }),
+            };
+            store.publish_event(event, None).await.unwrap();
+        }
+
+        // Small delay
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        // Create replay consumer from beginning
+        let consumer_name = format!("replay-test-{}", Uuid::new_v4());
+        let replay_consumer = store.create_replay_consumer(&consumer_name, None).await.unwrap();
+
+        // Fetch batch
+        let events = replay_consumer.fetch_batch(10).await.unwrap();
+        assert_eq!(events.len(), 5);
     }
 }
