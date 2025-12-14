@@ -324,6 +324,239 @@ impl<P: GraphProjection> ProjectionCache<P> {
     pub fn clear(&mut self) {
         self.projections.clear();
     }
+
+    /// Get the number of cached projections
+    pub fn len(&self) -> usize {
+        self.projections.len()
+    }
+
+    /// Check if cache is empty
+    pub fn is_empty(&self) -> bool {
+        self.projections.is_empty()
+    }
+
+    /// Get all cached projection IDs
+    pub fn cached_ids(&self) -> Vec<Uuid> {
+        self.projections.keys().cloned().collect()
+    }
+}
+
+/// Snapshot of a projection for persistence and recovery
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ProjectionSnapshot {
+    /// Aggregate ID of the projection
+    pub aggregate_id: Uuid,
+    /// Version at time of snapshot
+    pub version: u64,
+    /// Timestamp when snapshot was taken
+    pub timestamp: chrono::DateTime<chrono::Utc>,
+    /// Serialized projection data
+    pub data: serde_json::Value,
+    /// Checksum for integrity verification
+    pub checksum: String,
+}
+
+impl ProjectionSnapshot {
+    /// Create a new snapshot
+    pub fn new(aggregate_id: Uuid, version: u64, data: serde_json::Value) -> Self {
+        let checksum = Self::compute_checksum(&data);
+        Self {
+            aggregate_id,
+            version,
+            timestamp: chrono::Utc::now(),
+            data,
+            checksum,
+        }
+    }
+
+    /// Compute checksum for data integrity
+    fn compute_checksum(data: &serde_json::Value) -> String {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let mut hasher = DefaultHasher::new();
+        data.to_string().hash(&mut hasher);
+        format!("{:x}", hasher.finish())
+    }
+
+    /// Verify snapshot integrity
+    pub fn verify_integrity(&self) -> bool {
+        Self::compute_checksum(&self.data) == self.checksum
+    }
+}
+
+/// Event store interface for replaying events
+#[derive(Debug)]
+pub struct EventStore {
+    /// Events stored by aggregate ID
+    events: HashMap<Uuid, Vec<GraphEvent>>,
+    /// Snapshots by aggregate ID
+    snapshots: HashMap<Uuid, ProjectionSnapshot>,
+}
+
+impl EventStore {
+    /// Create a new in-memory event store
+    pub fn new() -> Self {
+        Self {
+            events: HashMap::new(),
+            snapshots: HashMap::new(),
+        }
+    }
+
+    /// Append events for an aggregate
+    pub fn append(&mut self, aggregate_id: Uuid, events: Vec<GraphEvent>) {
+        self.events
+            .entry(aggregate_id)
+            .or_insert_with(Vec::new)
+            .extend(events);
+    }
+
+    /// Get all events for an aggregate
+    pub fn get_events(&self, aggregate_id: &Uuid) -> Vec<GraphEvent> {
+        self.events.get(aggregate_id).cloned().unwrap_or_default()
+    }
+
+    /// Get events since a specific version
+    pub fn get_events_since(&self, aggregate_id: &Uuid, version: u64) -> Vec<GraphEvent> {
+        self.events
+            .get(aggregate_id)
+            .map(|events| {
+                events
+                    .iter()
+                    .filter(|e| e.sequence > version)
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Save a snapshot
+    pub fn save_snapshot(&mut self, snapshot: ProjectionSnapshot) {
+        self.snapshots.insert(snapshot.aggregate_id, snapshot);
+    }
+
+    /// Get latest snapshot
+    pub fn get_snapshot(&self, aggregate_id: &Uuid) -> Option<&ProjectionSnapshot> {
+        self.snapshots.get(aggregate_id)
+    }
+
+    /// Get event count for an aggregate
+    pub fn event_count(&self, aggregate_id: &Uuid) -> usize {
+        self.events.get(aggregate_id).map(|e| e.len()).unwrap_or(0)
+    }
+
+    /// Clear all events and snapshots for an aggregate
+    pub fn clear(&mut self, aggregate_id: &Uuid) {
+        self.events.remove(aggregate_id);
+        self.snapshots.remove(aggregate_id);
+    }
+}
+
+impl Default for EventStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Enhanced projection engine with snapshot and replay capabilities
+#[derive(Debug)]
+pub struct EnhancedProjectionEngine<P: GraphProjection> {
+    /// Base projection engine
+    engine: ProjectionEngine<P>,
+    /// Event store for replay
+    event_store: EventStore,
+    /// Snapshot interval (events between snapshots)
+    snapshot_interval: u64,
+}
+
+impl<N: Node + Clone, E: Edge + Clone> EnhancedProjectionEngine<GenericGraphProjection<N, E>>
+where
+    N: serde::Serialize + serde::de::DeserializeOwned,
+    E: serde::Serialize + serde::de::DeserializeOwned,
+{
+    /// Create a new enhanced projection engine
+    pub fn new(snapshot_interval: u64) -> Self {
+        Self {
+            engine: ProjectionEngine::new(),
+            event_store: EventStore::new(),
+            snapshot_interval,
+        }
+    }
+
+    /// Rebuild projection from events
+    pub fn rebuild_from_events(&mut self, aggregate_id: Uuid) -> GenericGraphProjection<N, E> {
+        let events = self.event_store.get_events(&aggregate_id);
+        if events.is_empty() {
+            return GenericGraphProjection::new(aggregate_id, GraphType::Generic);
+        }
+        self.engine.project(events)
+    }
+
+    /// Create a snapshot of the current projection
+    pub fn snapshot(&mut self, projection: &GenericGraphProjection<N, E>) -> ProjectionSnapshot {
+        let data = serde_json::json!({
+            "aggregate_id": projection.aggregate_id.to_string(),
+            "version": projection.version,
+            "graph_type": format!("{:?}", projection.graph_type),
+            "node_count": projection.nodes.len(),
+            "edge_count": projection.edges.len(),
+            "metadata": projection.metadata.properties,
+        });
+
+        let snapshot = ProjectionSnapshot::new(
+            projection.aggregate_id,
+            projection.version,
+            data,
+        );
+
+        self.event_store.save_snapshot(snapshot.clone());
+        snapshot
+    }
+
+    /// Restore projection from snapshot and replay newer events
+    pub fn restore_from_snapshot(&mut self, aggregate_id: Uuid) -> Option<GenericGraphProjection<N, E>> {
+        let snapshot = self.event_store.get_snapshot(&aggregate_id)?;
+
+        // Verify snapshot integrity
+        if !snapshot.verify_integrity() {
+            return None;
+        }
+
+        // Create base projection from snapshot
+        let mut projection = GenericGraphProjection::new(aggregate_id, GraphType::Generic);
+        projection.version = snapshot.version;
+
+        // Replay events since snapshot
+        let newer_events = self.event_store.get_events_since(&aggregate_id, snapshot.version);
+        for event in newer_events {
+            self.engine.apply(&mut projection, &event);
+        }
+
+        Some(projection)
+    }
+
+    /// Apply event and auto-snapshot if needed
+    pub fn apply_with_snapshot(
+        &mut self,
+        projection: &mut GenericGraphProjection<N, E>,
+        event: GraphEvent,
+    ) {
+        // Store event
+        self.event_store.append(projection.aggregate_id, vec![event.clone()]);
+
+        // Apply event
+        self.engine.apply(projection, &event);
+
+        // Auto-snapshot if interval reached
+        if projection.version > 0 && projection.version % self.snapshot_interval == 0 {
+            self.snapshot(projection);
+        }
+    }
+
+    /// Get events since a specific version
+    pub fn get_events_since(&self, aggregate_id: &Uuid, version: u64) -> Vec<GraphEvent> {
+        self.event_store.get_events_since(aggregate_id, version)
+    }
 }
 
 #[cfg(test)]
@@ -331,8 +564,66 @@ mod tests {
     use super::*;
     use crate::graphs::workflow::{WorkflowNode, WorkflowEdge, WorkflowNodeType};
     use chrono::Utc;
+    use serde::{Serialize, Deserialize};
 
     type TestProjection = GenericGraphProjection<WorkflowNode, WorkflowEdge>;
+
+    // Serializable test types for EnhancedProjectionEngine tests
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    struct SerializableNode {
+        id: String,
+        node_type: String,
+    }
+
+    impl SerializableNode {
+        fn new(id: impl Into<String>, node_type: impl Into<String>) -> Self {
+            Self {
+                id: id.into(),
+                node_type: node_type.into(),
+            }
+        }
+    }
+
+    impl Node for SerializableNode {
+        fn id(&self) -> String {
+            self.id.clone()
+        }
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    struct SerializableEdge {
+        id: String,
+        source: String,
+        target: String,
+        edge_type: String,
+    }
+
+    impl SerializableEdge {
+        fn new(id: impl Into<String>, source: impl Into<String>, target: impl Into<String>, edge_type: impl Into<String>) -> Self {
+            Self {
+                id: id.into(),
+                source: source.into(),
+                target: target.into(),
+                edge_type: edge_type.into(),
+            }
+        }
+    }
+
+    impl Edge for SerializableEdge {
+        fn id(&self) -> String {
+            self.id.clone()
+        }
+
+        fn source(&self) -> String {
+            self.source.clone()
+        }
+
+        fn target(&self) -> String {
+            self.target.clone()
+        }
+    }
+
+    type SerializableProjection = GenericGraphProjection<SerializableNode, SerializableEdge>;
 
     fn create_test_event(
         aggregate_id: Uuid,
@@ -895,5 +1186,816 @@ mod tests {
 
         // Should have the updated version
         assert_eq!(cache.get(&agg_id).unwrap().version, 2);
+    }
+
+    // ========== ProjectionCache Additional Tests ==========
+
+    #[test]
+    fn test_cache_len_and_is_empty() {
+        let mut cache: ProjectionCache<TestProjection> = ProjectionCache::new(10);
+
+        assert!(cache.is_empty());
+        assert_eq!(cache.len(), 0);
+
+        let agg_id = Uuid::new_v4();
+        let projection: TestProjection = GenericGraphProjection::new(agg_id, GraphType::Generic);
+        cache.put(projection);
+
+        assert!(!cache.is_empty());
+        assert_eq!(cache.len(), 1);
+
+        cache.clear();
+        assert!(cache.is_empty());
+        assert_eq!(cache.len(), 0);
+    }
+
+    #[test]
+    fn test_cache_cached_ids() {
+        let mut cache: ProjectionCache<TestProjection> = ProjectionCache::new(10);
+
+        let ids: Vec<Uuid> = (0..5).map(|_| Uuid::new_v4()).collect();
+
+        for id in &ids {
+            let projection: TestProjection = GenericGraphProjection::new(*id, GraphType::Generic);
+            cache.put(projection);
+        }
+
+        let cached = cache.cached_ids();
+        assert_eq!(cached.len(), 5);
+
+        for id in &ids {
+            assert!(cached.contains(id));
+        }
+    }
+
+    #[test]
+    fn test_cache_invalidate_nonexistent() {
+        let mut cache: ProjectionCache<TestProjection> = ProjectionCache::new(10);
+        let agg_id = Uuid::new_v4();
+
+        // Invalidating nonexistent ID should not panic
+        cache.invalidate(&agg_id);
+        assert!(cache.is_empty());
+    }
+
+    // ========== ProjectionSnapshot Tests ==========
+
+    #[test]
+    fn test_snapshot_creation() {
+        let agg_id = Uuid::new_v4();
+        let data = serde_json::json!({
+            "nodes": ["A", "B", "C"],
+            "edges": [{"from": "A", "to": "B"}]
+        });
+
+        let snapshot = ProjectionSnapshot::new(agg_id, 10, data.clone());
+
+        assert_eq!(snapshot.aggregate_id, agg_id);
+        assert_eq!(snapshot.version, 10);
+        assert_eq!(snapshot.data, data);
+        assert!(!snapshot.checksum.is_empty());
+    }
+
+    #[test]
+    fn test_snapshot_integrity_valid() {
+        let agg_id = Uuid::new_v4();
+        let data = serde_json::json!({"test": "data"});
+
+        let snapshot = ProjectionSnapshot::new(agg_id, 5, data);
+
+        assert!(snapshot.verify_integrity());
+    }
+
+    #[test]
+    fn test_snapshot_integrity_invalid() {
+        let agg_id = Uuid::new_v4();
+        let data = serde_json::json!({"test": "data"});
+
+        let mut snapshot = ProjectionSnapshot::new(agg_id, 5, data);
+
+        // Tamper with data
+        snapshot.data = serde_json::json!({"test": "tampered"});
+
+        assert!(!snapshot.verify_integrity());
+    }
+
+    #[test]
+    fn test_snapshot_checksum_deterministic() {
+        let agg_id = Uuid::new_v4();
+        let data = serde_json::json!({"key": "value", "number": 42});
+
+        let snapshot1 = ProjectionSnapshot::new(agg_id, 1, data.clone());
+        let snapshot2 = ProjectionSnapshot::new(agg_id, 1, data.clone());
+
+        // Same data should produce same checksum
+        assert_eq!(snapshot1.checksum, snapshot2.checksum);
+    }
+
+    #[test]
+    fn test_snapshot_different_data_different_checksum() {
+        let agg_id = Uuid::new_v4();
+
+        let snapshot1 = ProjectionSnapshot::new(agg_id, 1, serde_json::json!({"a": 1}));
+        let snapshot2 = ProjectionSnapshot::new(agg_id, 1, serde_json::json!({"a": 2}));
+
+        // Different data should produce different checksum
+        assert_ne!(snapshot1.checksum, snapshot2.checksum);
+    }
+
+    #[test]
+    fn test_snapshot_serialization() {
+        let agg_id = Uuid::new_v4();
+        let data = serde_json::json!({"nodes": 5, "edges": 10});
+
+        let snapshot = ProjectionSnapshot::new(agg_id, 15, data);
+
+        // Serialize
+        let json = serde_json::to_string(&snapshot).unwrap();
+        assert!(json.contains(&agg_id.to_string()));
+
+        // Deserialize
+        let deserialized: ProjectionSnapshot = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.aggregate_id, agg_id);
+        assert_eq!(deserialized.version, 15);
+        assert!(deserialized.verify_integrity());
+    }
+
+    // ========== EventStore Tests ==========
+
+    #[test]
+    fn test_event_store_creation() {
+        let store = EventStore::new();
+        assert_eq!(store.event_count(&Uuid::new_v4()), 0);
+    }
+
+    #[test]
+    fn test_event_store_default() {
+        let store = EventStore::default();
+        assert_eq!(store.event_count(&Uuid::new_v4()), 0);
+    }
+
+    #[test]
+    fn test_event_store_append() {
+        let mut store = EventStore::new();
+        let agg_id = Uuid::new_v4();
+
+        let events = vec![
+            create_test_event(agg_id, 1, EventData::GraphInitialized {
+                graph_type: "test".to_string(),
+                metadata: HashMap::new(),
+            }),
+        ];
+
+        store.append(agg_id, events);
+
+        assert_eq!(store.event_count(&agg_id), 1);
+    }
+
+    #[test]
+    fn test_event_store_append_multiple() {
+        let mut store = EventStore::new();
+        let agg_id = Uuid::new_v4();
+
+        // Append first batch
+        store.append(agg_id, vec![
+            create_test_event(agg_id, 1, EventData::GraphInitialized {
+                graph_type: "test".to_string(),
+                metadata: HashMap::new(),
+            }),
+        ]);
+
+        // Append second batch
+        store.append(agg_id, vec![
+            create_test_event(agg_id, 2, EventData::NodeAdded {
+                node_id: "A".to_string(),
+                node_type: "Node".to_string(),
+                data: serde_json::json!({}),
+            }),
+            create_test_event(agg_id, 3, EventData::NodeAdded {
+                node_id: "B".to_string(),
+                node_type: "Node".to_string(),
+                data: serde_json::json!({}),
+            }),
+        ]);
+
+        assert_eq!(store.event_count(&agg_id), 3);
+    }
+
+    #[test]
+    fn test_event_store_get_events() {
+        let mut store = EventStore::new();
+        let agg_id = Uuid::new_v4();
+
+        let events = vec![
+            create_test_event(agg_id, 1, EventData::GraphInitialized {
+                graph_type: "test".to_string(),
+                metadata: HashMap::new(),
+            }),
+            create_test_event(agg_id, 2, EventData::NodeAdded {
+                node_id: "A".to_string(),
+                node_type: "Node".to_string(),
+                data: serde_json::json!({}),
+            }),
+        ];
+
+        store.append(agg_id, events);
+
+        let retrieved = store.get_events(&agg_id);
+        assert_eq!(retrieved.len(), 2);
+        assert_eq!(retrieved[0].sequence, 1);
+        assert_eq!(retrieved[1].sequence, 2);
+    }
+
+    #[test]
+    fn test_event_store_get_events_empty() {
+        let store = EventStore::new();
+        let agg_id = Uuid::new_v4();
+
+        let events = store.get_events(&agg_id);
+        assert!(events.is_empty());
+    }
+
+    #[test]
+    fn test_event_store_get_events_since() {
+        let mut store = EventStore::new();
+        let agg_id = Uuid::new_v4();
+
+        let events = vec![
+            create_test_event(agg_id, 1, EventData::GraphInitialized {
+                graph_type: "test".to_string(),
+                metadata: HashMap::new(),
+            }),
+            create_test_event(agg_id, 2, EventData::NodeAdded {
+                node_id: "A".to_string(),
+                node_type: "Node".to_string(),
+                data: serde_json::json!({}),
+            }),
+            create_test_event(agg_id, 3, EventData::NodeAdded {
+                node_id: "B".to_string(),
+                node_type: "Node".to_string(),
+                data: serde_json::json!({}),
+            }),
+            create_test_event(agg_id, 4, EventData::NodeAdded {
+                node_id: "C".to_string(),
+                node_type: "Node".to_string(),
+                data: serde_json::json!({}),
+            }),
+        ];
+
+        store.append(agg_id, events);
+
+        // Get events since version 2 (should return 3 and 4)
+        let since = store.get_events_since(&agg_id, 2);
+        assert_eq!(since.len(), 2);
+        assert_eq!(since[0].sequence, 3);
+        assert_eq!(since[1].sequence, 4);
+    }
+
+    #[test]
+    fn test_event_store_get_events_since_empty() {
+        let store = EventStore::new();
+        let agg_id = Uuid::new_v4();
+
+        let since = store.get_events_since(&agg_id, 5);
+        assert!(since.is_empty());
+    }
+
+    #[test]
+    fn test_event_store_get_events_since_all() {
+        let mut store = EventStore::new();
+        let agg_id = Uuid::new_v4();
+
+        store.append(agg_id, vec![
+            create_test_event(agg_id, 1, EventData::GraphInitialized {
+                graph_type: "test".to_string(),
+                metadata: HashMap::new(),
+            }),
+        ]);
+
+        // Get events since version 0 (should return all)
+        let since = store.get_events_since(&agg_id, 0);
+        assert_eq!(since.len(), 1);
+    }
+
+    #[test]
+    fn test_event_store_get_events_since_future() {
+        let mut store = EventStore::new();
+        let agg_id = Uuid::new_v4();
+
+        store.append(agg_id, vec![
+            create_test_event(agg_id, 1, EventData::GraphInitialized {
+                graph_type: "test".to_string(),
+                metadata: HashMap::new(),
+            }),
+        ]);
+
+        // Get events since version higher than any existing
+        let since = store.get_events_since(&agg_id, 100);
+        assert!(since.is_empty());
+    }
+
+    #[test]
+    fn test_event_store_save_and_get_snapshot() {
+        let mut store = EventStore::new();
+        let agg_id = Uuid::new_v4();
+
+        let snapshot = ProjectionSnapshot::new(
+            agg_id,
+            10,
+            serde_json::json!({"nodes": 5}),
+        );
+
+        store.save_snapshot(snapshot.clone());
+
+        let retrieved = store.get_snapshot(&agg_id);
+        assert!(retrieved.is_some());
+        assert_eq!(retrieved.unwrap().version, 10);
+    }
+
+    #[test]
+    fn test_event_store_get_snapshot_not_found() {
+        let store = EventStore::new();
+        let agg_id = Uuid::new_v4();
+
+        let snapshot = store.get_snapshot(&agg_id);
+        assert!(snapshot.is_none());
+    }
+
+    #[test]
+    fn test_event_store_clear() {
+        let mut store = EventStore::new();
+        let agg_id = Uuid::new_v4();
+
+        // Add events and snapshot
+        store.append(agg_id, vec![
+            create_test_event(agg_id, 1, EventData::GraphInitialized {
+                graph_type: "test".to_string(),
+                metadata: HashMap::new(),
+            }),
+        ]);
+        store.save_snapshot(ProjectionSnapshot::new(
+            agg_id,
+            1,
+            serde_json::json!({}),
+        ));
+
+        assert_eq!(store.event_count(&agg_id), 1);
+        assert!(store.get_snapshot(&agg_id).is_some());
+
+        // Clear
+        store.clear(&agg_id);
+
+        assert_eq!(store.event_count(&agg_id), 0);
+        assert!(store.get_snapshot(&agg_id).is_none());
+    }
+
+    #[test]
+    fn test_event_store_multiple_aggregates() {
+        let mut store = EventStore::new();
+        let agg_id1 = Uuid::new_v4();
+        let agg_id2 = Uuid::new_v4();
+
+        // Add events for both aggregates
+        store.append(agg_id1, vec![
+            create_test_event(agg_id1, 1, EventData::GraphInitialized {
+                graph_type: "test1".to_string(),
+                metadata: HashMap::new(),
+            }),
+        ]);
+        store.append(agg_id2, vec![
+            create_test_event(agg_id2, 1, EventData::GraphInitialized {
+                graph_type: "test2".to_string(),
+                metadata: HashMap::new(),
+            }),
+            create_test_event(agg_id2, 2, EventData::NodeAdded {
+                node_id: "X".to_string(),
+                node_type: "Node".to_string(),
+                data: serde_json::json!({}),
+            }),
+        ]);
+
+        assert_eq!(store.event_count(&agg_id1), 1);
+        assert_eq!(store.event_count(&agg_id2), 2);
+
+        // Clear only agg_id1
+        store.clear(&agg_id1);
+
+        assert_eq!(store.event_count(&agg_id1), 0);
+        assert_eq!(store.event_count(&agg_id2), 2);
+    }
+
+    // ========== EnhancedProjectionEngine Tests ==========
+    // These tests use SerializableProjection because EnhancedProjectionEngine
+    // requires Serialize + DeserializeOwned on Node and Edge types
+
+    #[test]
+    fn test_enhanced_engine_creation() {
+        let engine: EnhancedProjectionEngine<SerializableProjection> = EnhancedProjectionEngine::new(10);
+        // Verify engine is created successfully
+        let _debug_str = format!("{:?}", engine);
+    }
+
+    #[test]
+    fn test_enhanced_engine_rebuild_from_events_empty() {
+        let mut engine: EnhancedProjectionEngine<SerializableProjection> = EnhancedProjectionEngine::new(10);
+        let agg_id = Uuid::new_v4();
+
+        // Rebuild with no events
+        let projection = engine.rebuild_from_events(agg_id);
+
+        assert_eq!(projection.aggregate_id, agg_id);
+        assert_eq!(projection.version, 0);
+        assert!(matches!(projection.graph_type, GraphType::Generic));
+    }
+
+    #[test]
+    fn test_enhanced_engine_rebuild_from_events_with_events() {
+        let mut engine: EnhancedProjectionEngine<SerializableProjection> = EnhancedProjectionEngine::new(10);
+        let agg_id = Uuid::new_v4();
+
+        // Add events to store
+        let events = vec![
+            create_test_event(agg_id, 1, EventData::GraphInitialized {
+                graph_type: "workflow".to_string(),
+                metadata: HashMap::new(),
+            }),
+            create_test_event(agg_id, 2, EventData::NodeAdded {
+                node_id: "start".to_string(),
+                node_type: "Start".to_string(),
+                data: serde_json::json!({}),
+            }),
+        ];
+
+        engine.event_store.append(agg_id, events);
+
+        // Rebuild projection
+        let projection = engine.rebuild_from_events(agg_id);
+
+        assert_eq!(projection.aggregate_id, agg_id);
+        assert_eq!(projection.version, 2);
+        assert!(matches!(projection.graph_type, GraphType::WorkflowGraph));
+        assert!(projection.adjacency.contains_key("start"));
+    }
+
+    #[test]
+    fn test_enhanced_engine_snapshot() {
+        let mut engine: EnhancedProjectionEngine<SerializableProjection> = EnhancedProjectionEngine::new(10);
+        let agg_id = Uuid::new_v4();
+
+        let mut projection: SerializableProjection = GenericGraphProjection::new(agg_id, GraphType::WorkflowGraph);
+        projection.version = 5;
+
+        let snapshot = engine.snapshot(&projection);
+
+        assert_eq!(snapshot.aggregate_id, agg_id);
+        assert_eq!(snapshot.version, 5);
+        assert!(snapshot.verify_integrity());
+
+        // Verify snapshot was saved
+        let saved = engine.event_store.get_snapshot(&agg_id);
+        assert!(saved.is_some());
+    }
+
+    #[test]
+    fn test_enhanced_engine_restore_from_snapshot() {
+        let mut engine: EnhancedProjectionEngine<SerializableProjection> = EnhancedProjectionEngine::new(10);
+        let agg_id = Uuid::new_v4();
+
+        // Create and save snapshot
+        let snapshot = ProjectionSnapshot::new(
+            agg_id,
+            5,
+            serde_json::json!({"nodes": 3}),
+        );
+        engine.event_store.save_snapshot(snapshot);
+
+        // Add some events after snapshot
+        engine.event_store.append(agg_id, vec![
+            create_test_event(agg_id, 6, EventData::NodeAdded {
+                node_id: "post_snapshot".to_string(),
+                node_type: "Node".to_string(),
+                data: serde_json::json!({}),
+            }),
+        ]);
+
+        // Restore
+        let result = engine.restore_from_snapshot(agg_id);
+        assert!(result.is_some());
+
+        let projection = result.unwrap();
+        assert_eq!(projection.aggregate_id, agg_id);
+        assert_eq!(projection.version, 6); // Updated by replayed event
+    }
+
+    #[test]
+    fn test_enhanced_engine_restore_from_snapshot_not_found() {
+        let mut engine: EnhancedProjectionEngine<SerializableProjection> = EnhancedProjectionEngine::new(10);
+        let agg_id = Uuid::new_v4();
+
+        let result = engine.restore_from_snapshot(agg_id);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_enhanced_engine_restore_from_corrupted_snapshot() {
+        let mut engine: EnhancedProjectionEngine<SerializableProjection> = EnhancedProjectionEngine::new(10);
+        let agg_id = Uuid::new_v4();
+
+        // Create snapshot with tampered data
+        let mut snapshot = ProjectionSnapshot::new(
+            agg_id,
+            5,
+            serde_json::json!({"original": "data"}),
+        );
+        snapshot.data = serde_json::json!({"tampered": "data"});
+        engine.event_store.save_snapshot(snapshot);
+
+        // Restore should fail due to integrity check
+        let result = engine.restore_from_snapshot(agg_id);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_enhanced_engine_apply_with_snapshot() {
+        let mut engine: EnhancedProjectionEngine<SerializableProjection> = EnhancedProjectionEngine::new(5);
+        let agg_id = Uuid::new_v4();
+
+        let mut projection: SerializableProjection = GenericGraphProjection::new(agg_id, GraphType::Generic);
+
+        // Apply events up to snapshot interval
+        for i in 1..=5 {
+            let event = create_test_event(agg_id, i, EventData::NodeAdded {
+                node_id: format!("node{}", i),
+                node_type: "Node".to_string(),
+                data: serde_json::json!({}),
+            });
+            engine.apply_with_snapshot(&mut projection, event);
+        }
+
+        // Should have created a snapshot at version 5
+        let snapshot = engine.event_store.get_snapshot(&agg_id);
+        assert!(snapshot.is_some());
+        assert_eq!(snapshot.unwrap().version, 5);
+    }
+
+    #[test]
+    fn test_enhanced_engine_apply_with_snapshot_no_trigger() {
+        let mut engine: EnhancedProjectionEngine<SerializableProjection> = EnhancedProjectionEngine::new(10);
+        let agg_id = Uuid::new_v4();
+
+        let mut projection: SerializableProjection = GenericGraphProjection::new(agg_id, GraphType::Generic);
+
+        // Apply only 3 events (below snapshot interval of 10)
+        for i in 1..=3 {
+            let event = create_test_event(agg_id, i, EventData::NodeAdded {
+                node_id: format!("node{}", i),
+                node_type: "Node".to_string(),
+                data: serde_json::json!({}),
+            });
+            engine.apply_with_snapshot(&mut projection, event);
+        }
+
+        // Should not have created a snapshot
+        let snapshot = engine.event_store.get_snapshot(&agg_id);
+        assert!(snapshot.is_none());
+    }
+
+    #[test]
+    fn test_enhanced_engine_get_events_since() {
+        let mut engine: EnhancedProjectionEngine<SerializableProjection> = EnhancedProjectionEngine::new(10);
+        let agg_id = Uuid::new_v4();
+
+        // Add events through apply_with_snapshot
+        let mut projection: SerializableProjection = GenericGraphProjection::new(agg_id, GraphType::Generic);
+
+        for i in 1..=5 {
+            let event = create_test_event(agg_id, i, EventData::NodeAdded {
+                node_id: format!("node{}", i),
+                node_type: "Node".to_string(),
+                data: serde_json::json!({}),
+            });
+            engine.apply_with_snapshot(&mut projection, event);
+        }
+
+        // Get events since version 3
+        let events = engine.get_events_since(&agg_id, 3);
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].sequence, 4);
+        assert_eq!(events[1].sequence, 5);
+    }
+
+    // ========== Integration Tests ==========
+
+    #[test]
+    fn test_full_projection_lifecycle() {
+        let mut engine: EnhancedProjectionEngine<SerializableProjection> = EnhancedProjectionEngine::new(5);
+        let agg_id = Uuid::new_v4();
+
+        // Initialize projection
+        let mut projection: SerializableProjection = GenericGraphProjection::new(agg_id, GraphType::WorkflowGraph);
+
+        // Apply initialization event
+        let init_event = create_test_event(agg_id, 1, EventData::GraphInitialized {
+            graph_type: "workflow".to_string(),
+            metadata: [("name".to_string(), serde_json::json!("Test Workflow"))].into_iter().collect(),
+        });
+        engine.apply_with_snapshot(&mut projection, init_event);
+
+        // Add nodes
+        for i in 2..=6 {
+            let node_event = create_test_event(agg_id, i, EventData::NodeAdded {
+                node_id: format!("state{}", i - 1),
+                node_type: "State".to_string(),
+                data: serde_json::json!({"order": i}),
+            });
+            engine.apply_with_snapshot(&mut projection, node_event);
+        }
+
+        // Verify projection state
+        assert_eq!(projection.version, 6);
+        assert!(matches!(projection.graph_type, GraphType::WorkflowGraph));
+
+        // Verify snapshot was created at version 5
+        let snapshot = engine.event_store.get_snapshot(&agg_id);
+        assert!(snapshot.is_some());
+
+        // Verify events are stored
+        let all_events = engine.event_store.get_events(&agg_id);
+        assert_eq!(all_events.len(), 6);
+
+        // Verify events since version 5
+        let recent_events = engine.get_events_since(&agg_id, 5);
+        assert_eq!(recent_events.len(), 1);
+    }
+
+    #[test]
+    fn test_projection_rebuild_matches_incremental() {
+        let mut engine: EnhancedProjectionEngine<SerializableProjection> = EnhancedProjectionEngine::new(10);
+        let agg_id = Uuid::new_v4();
+
+        // Build projection incrementally
+        let mut projection: SerializableProjection = GenericGraphProjection::new(agg_id, GraphType::Generic);
+
+        let events = vec![
+            create_test_event(agg_id, 1, EventData::GraphInitialized {
+                graph_type: "workflow".to_string(),
+                metadata: HashMap::new(),
+            }),
+            create_test_event(agg_id, 2, EventData::NodeAdded {
+                node_id: "A".to_string(),
+                node_type: "Start".to_string(),
+                data: serde_json::json!({}),
+            }),
+            create_test_event(agg_id, 3, EventData::NodeAdded {
+                node_id: "B".to_string(),
+                node_type: "End".to_string(),
+                data: serde_json::json!({}),
+            }),
+            create_test_event(agg_id, 4, EventData::EdgeAdded {
+                edge_id: "e1".to_string(),
+                source_id: "A".to_string(),
+                target_id: "B".to_string(),
+                edge_type: "Transition".to_string(),
+                data: serde_json::json!({}),
+            }),
+        ];
+
+        for event in events.clone() {
+            engine.apply_with_snapshot(&mut projection, event);
+        }
+
+        // Rebuild from events
+        let rebuilt = engine.rebuild_from_events(agg_id);
+
+        // Verify both projections match
+        assert_eq!(projection.version, rebuilt.version);
+        assert_eq!(projection.adjacency.len(), rebuilt.adjacency.len());
+        assert!(projection.adjacency.contains_key("A"));
+        assert!(rebuilt.adjacency.contains_key("A"));
+    }
+
+    #[test]
+    fn test_graph_projection_trait_implementation() {
+        let agg_id = Uuid::new_v4();
+        let mut projection: TestProjection = GenericGraphProjection::new(agg_id, GraphType::WorkflowGraph);
+
+        // Add nodes
+        let node_a = WorkflowNode::new("A", WorkflowNodeType::Start);
+        let node_b = WorkflowNode::state("B", "Middle");
+        let node_c = WorkflowNode::new("C", WorkflowNodeType::End);
+
+        projection.nodes.insert("A".to_string(), node_a);
+        projection.nodes.insert("B".to_string(), node_b);
+        projection.nodes.insert("C".to_string(), node_c);
+
+        // Add edges
+        let edge_ab = WorkflowEdge::transition("e1", "A", "B");
+        let edge_bc = WorkflowEdge::transition("e2", "B", "C");
+
+        projection.edges.insert("e1".to_string(), edge_ab);
+        projection.edges.insert("e2".to_string(), edge_bc);
+
+        projection.adjacency.insert("A".to_string(), vec!["B".to_string()]);
+        projection.adjacency.insert("B".to_string(), vec!["C".to_string()]);
+        projection.adjacency.insert("C".to_string(), vec![]);
+
+        // Test GraphProjection trait methods
+        use crate::core::cim_graph::GraphProjection;
+
+        assert_eq!(GraphProjection::aggregate_id(&projection), agg_id);
+        assert_eq!(GraphProjection::version(&projection), 0);
+        assert_eq!(GraphProjection::node_count(&projection), 3);
+        assert_eq!(GraphProjection::edge_count(&projection), 2);
+
+        assert!(GraphProjection::get_node(&projection, "A").is_some());
+        assert!(GraphProjection::get_node(&projection, "D").is_none());
+
+        assert!(GraphProjection::get_edge(&projection, "e1").is_some());
+        assert!(GraphProjection::get_edge(&projection, "e3").is_none());
+
+        let nodes: Vec<_> = GraphProjection::nodes(&projection);
+        assert_eq!(nodes.len(), 3);
+
+        let edges: Vec<_> = GraphProjection::edges(&projection);
+        assert_eq!(edges.len(), 2);
+
+        let edges_ab: Vec<_> = GraphProjection::edges_between(&projection, "A", "B");
+        assert_eq!(edges_ab.len(), 1);
+
+        let neighbors_a = GraphProjection::neighbors(&projection, "A");
+        assert_eq!(neighbors_a.len(), 1);
+        assert!(neighbors_a.contains(&"B"));
+    }
+
+    #[test]
+    fn test_projection_metadata_propagation() {
+        let engine: ProjectionEngine<TestProjection> = ProjectionEngine::new();
+        let agg_id = Uuid::new_v4();
+
+        let events = vec![
+            create_test_event(agg_id, 1, EventData::GraphInitialized {
+                graph_type: "workflow".to_string(),
+                metadata: [
+                    ("name".to_string(), serde_json::json!("Test Graph")),
+                    ("owner".to_string(), serde_json::json!("System")),
+                ].into_iter().collect(),
+            }),
+        ];
+
+        let projection = engine.project(events);
+
+        // Verify metadata was propagated
+        assert!(projection.metadata.properties.contains_key("name"));
+        assert!(projection.metadata.properties.contains_key("owner"));
+        assert_eq!(projection.metadata.properties["name"], serde_json::json!("Test Graph"));
+    }
+
+    #[test]
+    fn test_multiple_projections_isolated() {
+        let engine: ProjectionEngine<TestProjection> = ProjectionEngine::new();
+        let agg_id1 = Uuid::new_v4();
+        let agg_id2 = Uuid::new_v4();
+
+        // Create projection 1
+        let events1 = vec![
+            create_test_event(agg_id1, 1, EventData::GraphInitialized {
+                graph_type: "workflow".to_string(),
+                metadata: HashMap::new(),
+            }),
+            create_test_event(agg_id1, 2, EventData::NodeAdded {
+                node_id: "A".to_string(),
+                node_type: "Start".to_string(),
+                data: serde_json::json!({}),
+            }),
+        ];
+
+        // Create projection 2
+        let events2 = vec![
+            create_test_event(agg_id2, 1, EventData::GraphInitialized {
+                graph_type: "concept".to_string(),
+                metadata: HashMap::new(),
+            }),
+            create_test_event(agg_id2, 2, EventData::NodeAdded {
+                node_id: "X".to_string(),
+                node_type: "Concept".to_string(),
+                data: serde_json::json!({}),
+            }),
+            create_test_event(agg_id2, 3, EventData::NodeAdded {
+                node_id: "Y".to_string(),
+                node_type: "Concept".to_string(),
+                data: serde_json::json!({}),
+            }),
+        ];
+
+        let projection1 = engine.project(events1);
+        let projection2 = engine.project(events2);
+
+        // Verify projections are isolated
+        assert_eq!(projection1.aggregate_id, agg_id1);
+        assert_eq!(projection2.aggregate_id, agg_id2);
+        assert_eq!(projection1.version, 2);
+        assert_eq!(projection2.version, 3);
+        assert!(matches!(projection1.graph_type, GraphType::WorkflowGraph));
+        assert!(matches!(projection2.graph_type, GraphType::ConceptGraph));
     }
 }

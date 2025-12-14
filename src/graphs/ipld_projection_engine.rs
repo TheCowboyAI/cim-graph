@@ -203,13 +203,478 @@ pub fn build_ipld_projection(events: Vec<(GraphEvent, u64)>) -> IpldGraphProject
     if events.is_empty() {
         panic!("Cannot build projection from empty event stream");
     }
-    
+
     let aggregate_id = events[0].0.aggregate_id;
     let mut projection = IpldGraphProjection::new(aggregate_id);
-    
+
     for (event, sequence) in events {
         projection.apply(&event, sequence);
     }
-    
+
     projection
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::{Node, Edge};
+
+    // ========== IpldGraphProjection Creation Tests ==========
+
+    #[test]
+    fn test_ipld_graph_projection_new() {
+        let agg_id = Uuid::new_v4();
+        let projection = IpldGraphProjection::new(agg_id);
+
+        assert_eq!(projection.aggregate_id, agg_id);
+        assert_eq!(projection.version, 0);
+        assert!(projection.nodes.is_empty());
+        assert!(projection.edges.is_empty());
+        assert!(projection.cid_chain.is_empty());
+        assert!(projection.metadata.is_empty());
+    }
+
+    #[test]
+    fn test_ipld_graph_projection_unique_ids() {
+        let proj1 = IpldGraphProjection::new(Uuid::new_v4());
+        let proj2 = IpldGraphProjection::new(Uuid::new_v4());
+
+        assert_ne!(proj1.aggregate_id, proj2.aggregate_id);
+    }
+
+    // ========== Root CID Tests ==========
+
+    #[test]
+    fn test_ipld_graph_projection_root_cid_empty() {
+        let projection = IpldGraphProjection::new(Uuid::new_v4());
+        assert!(projection.root_cid().is_none());
+    }
+
+    #[test]
+    fn test_ipld_graph_projection_root_cid_with_chain() {
+        let mut projection = IpldGraphProjection::new(Uuid::new_v4());
+
+        projection.cid_chain.push(Cid::new("cid1"));
+        projection.cid_chain.push(Cid::new("cid2"));
+        projection.cid_chain.push(Cid::new("cid3"));
+
+        let root = projection.root_cid().unwrap();
+        assert_eq!(root.as_str(), "cid3");
+    }
+
+    // ========== CID at Sequence Tests ==========
+
+    #[test]
+    fn test_ipld_graph_projection_cid_at_sequence() {
+        let mut projection = IpldGraphProjection::new(Uuid::new_v4());
+
+        projection.cid_chain.push(Cid::new("first"));
+        projection.cid_chain.push(Cid::new("second"));
+        projection.cid_chain.push(Cid::new("third"));
+
+        assert_eq!(projection.cid_at_sequence(0).unwrap().as_str(), "first");
+        assert_eq!(projection.cid_at_sequence(1).unwrap().as_str(), "second");
+        assert_eq!(projection.cid_at_sequence(2).unwrap().as_str(), "third");
+        assert!(projection.cid_at_sequence(3).is_none());
+    }
+
+    #[test]
+    fn test_ipld_graph_projection_cid_at_sequence_empty() {
+        let projection = IpldGraphProjection::new(Uuid::new_v4());
+        assert!(projection.cid_at_sequence(0).is_none());
+    }
+
+    // ========== GraphProjection Trait Tests ==========
+
+    #[test]
+    fn test_ipld_graph_projection_aggregate_id() {
+        let agg_id = Uuid::new_v4();
+        let projection = IpldGraphProjection::new(agg_id);
+
+        assert_eq!(GraphProjection::aggregate_id(&projection), agg_id);
+    }
+
+    #[test]
+    fn test_ipld_graph_projection_version() {
+        let mut projection = IpldGraphProjection::new(Uuid::new_v4());
+        assert_eq!(GraphProjection::version(&projection), 0);
+
+        projection.version = 42;
+        assert_eq!(GraphProjection::version(&projection), 42);
+    }
+
+    #[test]
+    fn test_ipld_graph_projection_get_node() {
+        let mut projection = IpldGraphProjection::new(Uuid::new_v4());
+
+        // Create a test node
+        let cid = Cid::new("test_cid");
+        let event_payload = crate::graphs::ipld_event_chain::EventPayload {
+            cid: cid.clone(),
+            data: crate::core::cim_graph::EventData::NodeAdded {
+                node_id: "test_cid".to_string(),
+                node_type: "ipld".to_string(),
+                data: serde_json::json!({}),
+            },
+            previous: None,
+            aggregate_id: projection.aggregate_id,
+            sequence: 1,
+        };
+
+        let node = IpldEventNode::new(cid.clone(), event_payload);
+        projection.nodes.insert("test_cid".to_string(), node);
+
+        assert!(projection.get_node("test_cid").is_some());
+        assert!(projection.get_node("nonexistent").is_none());
+    }
+
+    #[test]
+    fn test_ipld_graph_projection_get_edge() {
+        let mut projection = IpldGraphProjection::new(Uuid::new_v4());
+
+        let edge = IpldChainEdge {
+            id: "test_edge".to_string(),
+            source: Cid::new("from"),
+            target: Cid::new("to"),
+            link_type: "previous".to_string(),
+        };
+        projection.edges.insert("test_edge".to_string(), edge);
+
+        assert!(projection.get_edge("test_edge").is_some());
+        assert!(projection.get_edge("nonexistent").is_none());
+    }
+
+    #[test]
+    fn test_ipld_graph_projection_nodes() {
+        let mut projection = IpldGraphProjection::new(Uuid::new_v4());
+
+        // Add multiple nodes
+        for i in 0..3 {
+            let cid = Cid::new(&format!("cid{}", i));
+            let event_payload = crate::graphs::ipld_event_chain::EventPayload {
+                cid: cid.clone(),
+                data: crate::core::cim_graph::EventData::NodeAdded {
+                    node_id: format!("cid{}", i),
+                    node_type: "ipld".to_string(),
+                    data: serde_json::json!({}),
+                },
+                previous: None,
+                aggregate_id: projection.aggregate_id,
+                sequence: i as u64,
+            };
+            let node = IpldEventNode::new(cid.clone(), event_payload);
+            projection.nodes.insert(format!("cid{}", i), node);
+        }
+
+        let nodes = projection.nodes();
+        assert_eq!(nodes.len(), 3);
+    }
+
+    #[test]
+    fn test_ipld_graph_projection_edges() {
+        let mut projection = IpldGraphProjection::new(Uuid::new_v4());
+
+        for i in 0..2 {
+            let edge = IpldChainEdge {
+                id: format!("edge{}", i),
+                source: Cid::new(&format!("from{}", i)),
+                target: Cid::new(&format!("to{}", i)),
+                link_type: "link".to_string(),
+            };
+            projection.edges.insert(format!("edge{}", i), edge);
+        }
+
+        let edges = projection.edges();
+        assert_eq!(edges.len(), 2);
+    }
+
+    #[test]
+    fn test_ipld_graph_projection_node_count() {
+        let mut projection = IpldGraphProjection::new(Uuid::new_v4());
+        assert_eq!(projection.node_count(), 0);
+
+        for i in 0..5 {
+            let cid = Cid::new(&format!("cid{}", i));
+            let event_payload = crate::graphs::ipld_event_chain::EventPayload {
+                cid: cid.clone(),
+                data: crate::core::cim_graph::EventData::NodeAdded {
+                    node_id: format!("cid{}", i),
+                    node_type: "ipld".to_string(),
+                    data: serde_json::json!({}),
+                },
+                previous: None,
+                aggregate_id: projection.aggregate_id,
+                sequence: i as u64,
+            };
+            let node = IpldEventNode::new(cid.clone(), event_payload);
+            projection.nodes.insert(format!("cid{}", i), node);
+        }
+
+        assert_eq!(projection.node_count(), 5);
+    }
+
+    #[test]
+    fn test_ipld_graph_projection_edge_count() {
+        let mut projection = IpldGraphProjection::new(Uuid::new_v4());
+        assert_eq!(projection.edge_count(), 0);
+
+        for i in 0..3 {
+            let edge = IpldChainEdge {
+                id: format!("edge{}", i),
+                source: Cid::new("from"),
+                target: Cid::new("to"),
+                link_type: "link".to_string(),
+            };
+            projection.edges.insert(format!("edge{}", i), edge);
+        }
+
+        assert_eq!(projection.edge_count(), 3);
+    }
+
+    #[test]
+    fn test_ipld_graph_projection_edges_between() {
+        let mut projection = IpldGraphProjection::new(Uuid::new_v4());
+
+        // Add edges
+        projection.edges.insert(
+            "e1".to_string(),
+            IpldChainEdge {
+                id: "e1".to_string(),
+                source: Cid::new("A"),
+                target: Cid::new("B"),
+                link_type: "link".to_string(),
+            },
+        );
+        projection.edges.insert(
+            "e2".to_string(),
+            IpldChainEdge {
+                id: "e2".to_string(),
+                source: Cid::new("A"),
+                target: Cid::new("B"),
+                link_type: "another".to_string(),
+            },
+        );
+        projection.edges.insert(
+            "e3".to_string(),
+            IpldChainEdge {
+                id: "e3".to_string(),
+                source: Cid::new("B"),
+                target: Cid::new("C"),
+                link_type: "link".to_string(),
+            },
+        );
+
+        let edges_ab = projection.edges_between("A", "B");
+        assert_eq!(edges_ab.len(), 2);
+
+        let edges_bc = projection.edges_between("B", "C");
+        assert_eq!(edges_bc.len(), 1);
+
+        let edges_ac = projection.edges_between("A", "C");
+        assert_eq!(edges_ac.len(), 0);
+    }
+
+    #[test]
+    fn test_ipld_graph_projection_neighbors() {
+        let mut projection = IpldGraphProjection::new(Uuid::new_v4());
+
+        // Add edges from node A to B and C
+        projection.edges.insert(
+            "e1".to_string(),
+            IpldChainEdge {
+                id: "e1".to_string(),
+                source: Cid::new("A"),
+                target: Cid::new("B"),
+                link_type: "link".to_string(),
+            },
+        );
+        projection.edges.insert(
+            "e2".to_string(),
+            IpldChainEdge {
+                id: "e2".to_string(),
+                source: Cid::new("A"),
+                target: Cid::new("C"),
+                link_type: "link".to_string(),
+            },
+        );
+        projection.edges.insert(
+            "e3".to_string(),
+            IpldChainEdge {
+                id: "e3".to_string(),
+                source: Cid::new("B"),
+                target: Cid::new("D"),
+                link_type: "link".to_string(),
+            },
+        );
+
+        let neighbors_a = projection.neighbors("A");
+        assert_eq!(neighbors_a.len(), 2);
+        assert!(neighbors_a.contains(&"B"));
+        assert!(neighbors_a.contains(&"C"));
+
+        let neighbors_b = projection.neighbors("B");
+        assert_eq!(neighbors_b.len(), 1);
+        assert!(neighbors_b.contains(&"D"));
+
+        let neighbors_d = projection.neighbors("D");
+        assert_eq!(neighbors_d.len(), 0);
+    }
+
+    // ========== Metadata Tests ==========
+
+    #[test]
+    fn test_ipld_graph_projection_metadata() {
+        let mut projection = IpldGraphProjection::new(Uuid::new_v4());
+
+        projection.metadata.insert("key1".to_string(), serde_json::json!("value1"));
+        projection.metadata.insert("key2".to_string(), serde_json::json!(42));
+
+        assert_eq!(projection.metadata.get("key1").unwrap(), &serde_json::json!("value1"));
+        assert_eq!(projection.metadata.get("key2").unwrap(), &serde_json::json!(42));
+        assert!(projection.metadata.get("nonexistent").is_none());
+    }
+
+    // ========== IpldChainEdge Tests ==========
+
+    #[test]
+    fn test_ipld_chain_edge_creation() {
+        let edge = IpldChainEdge {
+            id: "edge_id".to_string(),
+            source: Cid::new("source_cid"),
+            target: Cid::new("target_cid"),
+            link_type: "previous".to_string(),
+        };
+
+        assert_eq!(edge.id, "edge_id");
+        assert_eq!(edge.source.as_str(), "source_cid");
+        assert_eq!(edge.target.as_str(), "target_cid");
+        assert_eq!(edge.link_type, "previous");
+    }
+
+    #[test]
+    fn test_ipld_chain_edge_implements_edge_trait() {
+        let edge = IpldChainEdge {
+            id: "test_edge".to_string(),
+            source: Cid::new("from"),
+            target: Cid::new("to"),
+            link_type: "link".to_string(),
+        };
+
+        assert_eq!(Edge::id(&edge), "test_edge");
+        assert_eq!(Edge::source(&edge), "from");
+        assert_eq!(Edge::target(&edge), "to");
+    }
+
+    // ========== IpldEventNode Tests ==========
+
+    #[test]
+    fn test_ipld_event_node_creation() {
+        let cid = Cid::new("test_cid");
+        let aggregate_id = Uuid::new_v4();
+        let event_payload = crate::graphs::ipld_event_chain::EventPayload {
+            cid: cid.clone(),
+            data: crate::core::cim_graph::EventData::NodeAdded {
+                node_id: "test_cid".to_string(),
+                node_type: "ipld".to_string(),
+                data: serde_json::json!({"key": "value"}),
+            },
+            previous: None,
+            aggregate_id,
+            sequence: 1,
+        };
+
+        let node = IpldEventNode::new(cid.clone(), event_payload);
+
+        assert_eq!(node.cid.as_str(), "test_cid");
+        assert!(node.links.is_empty());
+    }
+
+    #[test]
+    fn test_ipld_event_node_implements_node_trait() {
+        let cid = Cid::new("node_cid");
+        let aggregate_id = Uuid::new_v4();
+        let event_payload = crate::graphs::ipld_event_chain::EventPayload {
+            cid: cid.clone(),
+            data: crate::core::cim_graph::EventData::NodeAdded {
+                node_id: "node_cid".to_string(),
+                node_type: "ipld".to_string(),
+                data: serde_json::json!({}),
+            },
+            previous: None,
+            aggregate_id,
+            sequence: 1,
+        };
+
+        let node = IpldEventNode::new(cid.clone(), event_payload);
+
+        assert_eq!(Node::id(&node), "node_cid");
+    }
+
+    #[test]
+    fn test_ipld_event_node_with_links() {
+        let cid = Cid::new("main_cid");
+        let aggregate_id = Uuid::new_v4();
+        let event_payload = crate::graphs::ipld_event_chain::EventPayload {
+            cid: cid.clone(),
+            data: crate::core::cim_graph::EventData::NodeAdded {
+                node_id: "main_cid".to_string(),
+                node_type: "ipld".to_string(),
+                data: serde_json::json!({}),
+            },
+            previous: None,
+            aggregate_id,
+            sequence: 1,
+        };
+
+        let mut node = IpldEventNode::new(cid.clone(), event_payload);
+        node.links.insert("child".to_string(), Cid::new("child_cid"));
+        node.links.insert("sibling".to_string(), Cid::new("sibling_cid"));
+
+        assert_eq!(node.links.len(), 2);
+        assert_eq!(node.links.get("child").unwrap().as_str(), "child_cid");
+        assert_eq!(node.links.get("sibling").unwrap().as_str(), "sibling_cid");
+    }
+
+    // ========== Verify Chain Tests ==========
+
+    #[test]
+    fn test_verify_chain_empty() {
+        let projection = IpldGraphProjection::new(Uuid::new_v4());
+        // Empty chain should verify as true
+        assert!(projection.verify_chain());
+    }
+
+    #[test]
+    fn test_verify_chain_single_node() {
+        let mut projection = IpldGraphProjection::new(Uuid::new_v4());
+
+        let cid = Cid::new("first_cid");
+        let event_payload = crate::graphs::ipld_event_chain::EventPayload {
+            cid: cid.clone(),
+            data: crate::core::cim_graph::EventData::NodeAdded {
+                node_id: "first_cid".to_string(),
+                node_type: "ipld".to_string(),
+                data: serde_json::json!({}),
+            },
+            previous: None, // First node has no previous
+            aggregate_id: projection.aggregate_id,
+            sequence: 1,
+        };
+
+        let node = IpldEventNode::new(cid.clone(), event_payload);
+        projection.nodes.insert("first_cid".to_string(), node);
+        projection.cid_chain.push(cid);
+
+        // Single node chain should verify as true
+        assert!(projection.verify_chain());
+    }
+
+    // ========== Debug Tests ==========
+
+    #[test]
+    fn test_ipld_graph_projection_debug() {
+        let projection = IpldGraphProjection::new(Uuid::new_v4());
+        let debug_str = format!("{:?}", projection);
+        assert!(debug_str.contains("IpldGraphProjection"));
+    }
 }

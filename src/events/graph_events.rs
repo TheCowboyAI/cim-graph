@@ -516,7 +516,7 @@ pub enum ComposedCommand {
 /// Helper to create NATS headers from an event
 pub fn event_to_nats_headers(event: &GraphEvent) -> HashMap<String, String> {
     let mut headers = HashMap::new();
-    
+
     // These are the only headers we need - JetStream provides the rest
     headers.insert("Nats-Msg-Id".to_string(), event.event_id.to_string());
     headers.insert("Correlation-Id".to_string(), event.correlation_id.to_string());
@@ -524,6 +524,868 @@ pub fn event_to_nats_headers(event: &GraphEvent) -> HashMap<String, String> {
         headers.insert("Causation-Id".to_string(), causation_id.to_string());
     }
     headers.insert("Aggregate-Id".to_string(), event.aggregate_id.to_string());
-    
+
     headers
+}
+
+impl EventPayload {
+    /// Get the event type as a string
+    pub fn event_type(&self) -> &str {
+        match self {
+            EventPayload::Generic(_) => "generic",
+            EventPayload::Ipld(_) => "ipld",
+            EventPayload::Context(_) => "context",
+            EventPayload::Workflow(_) => "workflow",
+            EventPayload::Concept(_) => "concept",
+            EventPayload::Composed(_) => "composed",
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ========== GraphEvent Tests ==========
+
+    #[test]
+    fn test_graph_event_creation() {
+        let event = GraphEvent {
+            event_id: Uuid::new_v4(),
+            aggregate_id: Uuid::new_v4(),
+            correlation_id: Uuid::new_v4(),
+            causation_id: None,
+            payload: EventPayload::Generic(GenericPayload {
+                event_type: "Test".to_string(),
+                data: serde_json::json!({}),
+            }),
+        };
+
+        assert!(event.causation_id.is_none());
+    }
+
+    #[test]
+    fn test_graph_event_with_causation() {
+        let cause_id = Uuid::new_v4();
+        let event = GraphEvent {
+            event_id: Uuid::new_v4(),
+            aggregate_id: Uuid::new_v4(),
+            correlation_id: Uuid::new_v4(),
+            causation_id: Some(cause_id),
+            payload: EventPayload::Generic(GenericPayload {
+                event_type: "Effect".to_string(),
+                data: serde_json::json!({}),
+            }),
+        };
+
+        assert_eq!(event.causation_id, Some(cause_id));
+    }
+
+    #[test]
+    fn test_graph_event_clone() {
+        let original = GraphEvent {
+            event_id: Uuid::new_v4(),
+            aggregate_id: Uuid::new_v4(),
+            correlation_id: Uuid::new_v4(),
+            causation_id: Some(Uuid::new_v4()),
+            payload: EventPayload::Generic(GenericPayload {
+                event_type: "Clone".to_string(),
+                data: serde_json::json!({"key": "value"}),
+            }),
+        };
+
+        let cloned = original.clone();
+        assert_eq!(original.event_id, cloned.event_id);
+        assert_eq!(original.aggregate_id, cloned.aggregate_id);
+    }
+
+    #[test]
+    fn test_graph_event_debug() {
+        let event = GraphEvent {
+            event_id: Uuid::new_v4(),
+            aggregate_id: Uuid::new_v4(),
+            correlation_id: Uuid::new_v4(),
+            causation_id: None,
+            payload: EventPayload::Generic(GenericPayload {
+                event_type: "Debug".to_string(),
+                data: serde_json::json!({}),
+            }),
+        };
+
+        let debug_str = format!("{:?}", event);
+        assert!(debug_str.contains("GraphEvent"));
+    }
+
+    #[test]
+    fn test_graph_event_serialize_deserialize() {
+        let event = GraphEvent {
+            event_id: Uuid::new_v4(),
+            aggregate_id: Uuid::new_v4(),
+            correlation_id: Uuid::new_v4(),
+            causation_id: Some(Uuid::new_v4()),
+            payload: EventPayload::Generic(GenericPayload {
+                event_type: "Serialize".to_string(),
+                data: serde_json::json!({"test": true}),
+            }),
+        };
+
+        let json = serde_json::to_string(&event).unwrap();
+        let deserialized: GraphEvent = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(event.event_id, deserialized.event_id);
+        assert_eq!(event.aggregate_id, deserialized.aggregate_id);
+        assert_eq!(event.causation_id, deserialized.causation_id);
+    }
+
+    // ========== EventPayload Tests ==========
+
+    #[test]
+    fn test_event_payload_generic() {
+        let payload = EventPayload::Generic(GenericPayload {
+            event_type: "Test".to_string(),
+            data: serde_json::json!({"key": "value"}),
+        });
+
+        assert_eq!(payload.event_type(), "generic");
+    }
+
+    #[test]
+    fn test_event_payload_ipld() {
+        let payload = EventPayload::Ipld(IpldPayload::CidAdded {
+            cid: "QmTest".to_string(),
+            codec: "dag-cbor".to_string(),
+            size: 100,
+            data: serde_json::json!({}),
+        });
+
+        assert_eq!(payload.event_type(), "ipld");
+    }
+
+    #[test]
+    fn test_event_payload_context() {
+        let payload = EventPayload::Context(ContextPayload::BoundedContextCreated {
+            context_id: "ctx1".to_string(),
+            name: "Test Context".to_string(),
+            description: "A test bounded context".to_string(),
+        });
+
+        assert_eq!(payload.event_type(), "context");
+    }
+
+    #[test]
+    fn test_event_payload_workflow() {
+        let payload = EventPayload::Workflow(WorkflowPayload::WorkflowDefined {
+            workflow_id: Uuid::new_v4(),
+            name: "Order Processing".to_string(),
+            version: "1.0.0".to_string(),
+        });
+
+        assert_eq!(payload.event_type(), "workflow");
+    }
+
+    #[test]
+    fn test_event_payload_concept() {
+        let payload = EventPayload::Concept(ConceptPayload::ConceptDefined {
+            concept_id: "c1".to_string(),
+            name: "Customer".to_string(),
+            definition: "A person who buys products".to_string(),
+        });
+
+        assert_eq!(payload.event_type(), "concept");
+    }
+
+    #[test]
+    fn test_event_payload_composed() {
+        let payload = EventPayload::Composed(ComposedPayload::SubGraphAdded {
+            subgraph_id: Uuid::new_v4(),
+            graph_type: "workflow".to_string(),
+            namespace: "orders".to_string(),
+        });
+
+        assert_eq!(payload.event_type(), "composed");
+    }
+
+    // ========== GenericPayload Tests ==========
+
+    #[test]
+    fn test_generic_payload() {
+        let payload = GenericPayload {
+            event_type: "NodeCreated".to_string(),
+            data: serde_json::json!({
+                "node_id": "n1",
+                "label": "Test Node"
+            }),
+        };
+
+        assert_eq!(payload.event_type, "NodeCreated");
+        assert_eq!(payload.data.get("node_id").unwrap().as_str(), Some("n1"));
+    }
+
+    #[test]
+    fn test_generic_payload_clone() {
+        let original = GenericPayload {
+            event_type: "Clone".to_string(),
+            data: serde_json::json!({"value": 42}),
+        };
+
+        let cloned = original.clone();
+        assert_eq!(original.event_type, cloned.event_type);
+    }
+
+    // ========== IpldPayload Tests ==========
+
+    #[test]
+    fn test_ipld_payload_cid_added() {
+        let payload = IpldPayload::CidAdded {
+            cid: "QmAbcd".to_string(),
+            codec: "dag-cbor".to_string(),
+            size: 256,
+            data: serde_json::json!({"content": "test"}),
+        };
+
+        let debug_str = format!("{:?}", payload);
+        assert!(debug_str.contains("CidAdded"));
+        assert!(debug_str.contains("QmAbcd"));
+    }
+
+    #[test]
+    fn test_ipld_payload_cid_link_added() {
+        let payload = IpldPayload::CidLinkAdded {
+            cid: "QmSource".to_string(),
+            link_name: "child".to_string(),
+            target_cid: "QmTarget".to_string(),
+        };
+
+        let debug_str = format!("{:?}", payload);
+        assert!(debug_str.contains("CidLinkAdded"));
+    }
+
+    #[test]
+    fn test_ipld_payload_cid_pinned() {
+        let payload = IpldPayload::CidPinned {
+            cid: "QmPinMe".to_string(),
+            recursive: true,
+        };
+
+        let debug_str = format!("{:?}", payload);
+        assert!(debug_str.contains("CidPinned"));
+        assert!(debug_str.contains("recursive: true"));
+    }
+
+    #[test]
+    fn test_ipld_payload_cid_unpinned() {
+        let payload = IpldPayload::CidUnpinned {
+            cid: "QmUnpinMe".to_string(),
+        };
+
+        let debug_str = format!("{:?}", payload);
+        assert!(debug_str.contains("CidUnpinned"));
+    }
+
+    // ========== ContextPayload Tests ==========
+
+    #[test]
+    fn test_context_payload_bounded_context_created() {
+        let payload = ContextPayload::BoundedContextCreated {
+            context_id: "orders".to_string(),
+            name: "Order Management".to_string(),
+            description: "Handles order lifecycle".to_string(),
+        };
+
+        let debug_str = format!("{:?}", payload);
+        assert!(debug_str.contains("BoundedContextCreated"));
+    }
+
+    #[test]
+    fn test_context_payload_aggregate_added() {
+        let payload = ContextPayload::AggregateAdded {
+            context_id: "orders".to_string(),
+            aggregate_id: Uuid::new_v4(),
+            aggregate_type: "Order".to_string(),
+        };
+
+        let debug_str = format!("{:?}", payload);
+        assert!(debug_str.contains("AggregateAdded"));
+    }
+
+    #[test]
+    fn test_context_payload_entity_added() {
+        let payload = ContextPayload::EntityAdded {
+            aggregate_id: Uuid::new_v4(),
+            entity_id: Uuid::new_v4(),
+            entity_type: "OrderItem".to_string(),
+            properties: serde_json::json!({"quantity": 5}),
+        };
+
+        let debug_str = format!("{:?}", payload);
+        assert!(debug_str.contains("EntityAdded"));
+    }
+
+    #[test]
+    fn test_context_payload_value_object_attached() {
+        let payload = ContextPayload::ValueObjectAttached {
+            parent_id: Uuid::new_v4(),
+            value_type: "Money".to_string(),
+            value_data: serde_json::json!({"amount": 100, "currency": "USD"}),
+        };
+
+        let debug_str = format!("{:?}", payload);
+        assert!(debug_str.contains("ValueObjectAttached"));
+    }
+
+    #[test]
+    fn test_context_payload_relationship_established() {
+        let payload = ContextPayload::RelationshipEstablished {
+            source_id: Uuid::new_v4(),
+            target_id: Uuid::new_v4(),
+            relationship_type: "owns".to_string(),
+        };
+
+        let debug_str = format!("{:?}", payload);
+        assert!(debug_str.contains("RelationshipEstablished"));
+    }
+
+    // ========== WorkflowPayload Tests ==========
+
+    #[test]
+    fn test_workflow_payload_workflow_defined() {
+        let payload = WorkflowPayload::WorkflowDefined {
+            workflow_id: Uuid::new_v4(),
+            name: "Order Approval".to_string(),
+            version: "2.0.0".to_string(),
+        };
+
+        let debug_str = format!("{:?}", payload);
+        assert!(debug_str.contains("WorkflowDefined"));
+    }
+
+    #[test]
+    fn test_workflow_payload_state_added() {
+        let payload = WorkflowPayload::StateAdded {
+            workflow_id: Uuid::new_v4(),
+            state_id: "pending".to_string(),
+            state_type: "intermediate".to_string(),
+        };
+
+        let debug_str = format!("{:?}", payload);
+        assert!(debug_str.contains("StateAdded"));
+    }
+
+    #[test]
+    fn test_workflow_payload_transition_added() {
+        let payload = WorkflowPayload::TransitionAdded {
+            workflow_id: Uuid::new_v4(),
+            from_state: "pending".to_string(),
+            to_state: "approved".to_string(),
+            trigger: "approve_button".to_string(),
+        };
+
+        let debug_str = format!("{:?}", payload);
+        assert!(debug_str.contains("TransitionAdded"));
+    }
+
+    #[test]
+    fn test_workflow_payload_instance_created() {
+        let payload = WorkflowPayload::InstanceCreated {
+            workflow_id: Uuid::new_v4(),
+            instance_id: Uuid::new_v4(),
+            initial_state: "start".to_string(),
+        };
+
+        let debug_str = format!("{:?}", payload);
+        assert!(debug_str.contains("InstanceCreated"));
+    }
+
+    #[test]
+    fn test_workflow_payload_state_transitioned() {
+        let payload = WorkflowPayload::StateTransitioned {
+            instance_id: Uuid::new_v4(),
+            from_state: "pending".to_string(),
+            to_state: "approved".to_string(),
+        };
+
+        let debug_str = format!("{:?}", payload);
+        assert!(debug_str.contains("StateTransitioned"));
+    }
+
+    // ========== ConceptPayload Tests ==========
+
+    #[test]
+    fn test_concept_payload_concept_defined() {
+        let payload = ConceptPayload::ConceptDefined {
+            concept_id: "vehicle".to_string(),
+            name: "Vehicle".to_string(),
+            definition: "A thing used for transporting people or cargo".to_string(),
+        };
+
+        let debug_str = format!("{:?}", payload);
+        assert!(debug_str.contains("ConceptDefined"));
+    }
+
+    #[test]
+    fn test_concept_payload_properties_added() {
+        let payload = ConceptPayload::PropertiesAdded {
+            concept_id: "car".to_string(),
+            properties: vec![
+                ("wheels".to_string(), 4.0),
+                ("engine".to_string(), 1.0),
+            ],
+        };
+
+        let debug_str = format!("{:?}", payload);
+        assert!(debug_str.contains("PropertiesAdded"));
+    }
+
+    #[test]
+    fn test_concept_payload_relation_added() {
+        let payload = ConceptPayload::RelationAdded {
+            source_concept: "car".to_string(),
+            target_concept: "vehicle".to_string(),
+            relation_type: "is-a".to_string(),
+            strength: 1.0,
+        };
+
+        let debug_str = format!("{:?}", payload);
+        assert!(debug_str.contains("RelationAdded"));
+    }
+
+    #[test]
+    fn test_concept_payload_property_inferred() {
+        let payload = ConceptPayload::PropertyInferred {
+            concept_id: "car".to_string(),
+            property_name: "transportable".to_string(),
+            inferred_value: 1.0,
+            confidence: 0.95,
+        };
+
+        let debug_str = format!("{:?}", payload);
+        assert!(debug_str.contains("PropertyInferred"));
+    }
+
+    // ========== ComposedPayload Tests ==========
+
+    #[test]
+    fn test_composed_payload_subgraph_added() {
+        let payload = ComposedPayload::SubGraphAdded {
+            subgraph_id: Uuid::new_v4(),
+            graph_type: "workflow".to_string(),
+            namespace: "orders".to_string(),
+        };
+
+        let debug_str = format!("{:?}", payload);
+        assert!(debug_str.contains("SubGraphAdded"));
+    }
+
+    #[test]
+    fn test_composed_payload_cross_graph_link_created() {
+        let payload = ComposedPayload::CrossGraphLinkCreated {
+            source_graph: Uuid::new_v4(),
+            source_node: "n1".to_string(),
+            target_graph: Uuid::new_v4(),
+            target_node: "n2".to_string(),
+        };
+
+        let debug_str = format!("{:?}", payload);
+        assert!(debug_str.contains("CrossGraphLinkCreated"));
+    }
+
+    // ========== GraphCommand Tests ==========
+
+    #[test]
+    fn test_graph_command_initialize() {
+        let cmd = GraphCommand::InitializeGraph {
+            aggregate_id: Uuid::new_v4(),
+            graph_type: "workflow".to_string(),
+            correlation_id: Uuid::new_v4(),
+        };
+
+        let debug_str = format!("{:?}", cmd);
+        assert!(debug_str.contains("InitializeGraph"));
+    }
+
+    #[test]
+    fn test_graph_command_ipld() {
+        let cmd = GraphCommand::Ipld {
+            aggregate_id: Uuid::new_v4(),
+            correlation_id: Uuid::new_v4(),
+            command: IpldCommand::AddCid {
+                cid: "QmTest".to_string(),
+                codec: "dag-cbor".to_string(),
+                size: 100,
+                data: serde_json::json!({}),
+            },
+        };
+
+        let debug_str = format!("{:?}", cmd);
+        assert!(debug_str.contains("Ipld"));
+    }
+
+    #[test]
+    fn test_graph_command_context() {
+        let cmd = GraphCommand::Context {
+            aggregate_id: Uuid::new_v4(),
+            correlation_id: Uuid::new_v4(),
+            command: ContextCommand::CreateBoundedContext {
+                context_id: "ctx".to_string(),
+                name: "Test".to_string(),
+                description: "Desc".to_string(),
+            },
+        };
+
+        let debug_str = format!("{:?}", cmd);
+        assert!(debug_str.contains("Context"));
+    }
+
+    #[test]
+    fn test_graph_command_workflow() {
+        let cmd = GraphCommand::Workflow {
+            aggregate_id: Uuid::new_v4(),
+            correlation_id: Uuid::new_v4(),
+            command: WorkflowCommand::DefineWorkflow {
+                workflow_id: Uuid::new_v4(),
+                name: "Test".to_string(),
+                version: "1.0".to_string(),
+            },
+        };
+
+        let debug_str = format!("{:?}", cmd);
+        assert!(debug_str.contains("Workflow"));
+    }
+
+    #[test]
+    fn test_graph_command_concept() {
+        let cmd = GraphCommand::Concept {
+            aggregate_id: Uuid::new_v4(),
+            correlation_id: Uuid::new_v4(),
+            command: ConceptCommand::DefineConcept {
+                concept_id: "c1".to_string(),
+                name: "Test".to_string(),
+                definition: "Def".to_string(),
+            },
+        };
+
+        let debug_str = format!("{:?}", cmd);
+        assert!(debug_str.contains("Concept"));
+    }
+
+    #[test]
+    fn test_graph_command_composed() {
+        let cmd = GraphCommand::Composed {
+            aggregate_id: Uuid::new_v4(),
+            correlation_id: Uuid::new_v4(),
+            command: ComposedCommand::AddSubGraph {
+                subgraph_id: Uuid::new_v4(),
+                graph_type: "ipld".to_string(),
+                namespace: "ns".to_string(),
+            },
+        };
+
+        let debug_str = format!("{:?}", cmd);
+        assert!(debug_str.contains("Composed"));
+    }
+
+    #[test]
+    fn test_graph_command_archive() {
+        let cmd = GraphCommand::ArchiveGraph {
+            aggregate_id: Uuid::new_v4(),
+            correlation_id: Uuid::new_v4(),
+        };
+
+        let debug_str = format!("{:?}", cmd);
+        assert!(debug_str.contains("ArchiveGraph"));
+    }
+
+    #[test]
+    fn test_graph_command_generic() {
+        let cmd = GraphCommand::Generic {
+            aggregate_id: Uuid::new_v4(),
+            correlation_id: Uuid::new_v4(),
+            command: "custom_command".to_string(),
+            data: serde_json::json!({"param": "value"}),
+        };
+
+        let debug_str = format!("{:?}", cmd);
+        assert!(debug_str.contains("Generic"));
+    }
+
+    // ========== IpldCommand Tests ==========
+
+    #[test]
+    fn test_ipld_command_add_cid() {
+        let cmd = IpldCommand::AddCid {
+            cid: "QmNew".to_string(),
+            codec: "dag-json".to_string(),
+            size: 50,
+            data: serde_json::json!({}),
+        };
+
+        let debug_str = format!("{:?}", cmd);
+        assert!(debug_str.contains("AddCid"));
+    }
+
+    #[test]
+    fn test_ipld_command_link_cids() {
+        let cmd = IpldCommand::LinkCids {
+            source_cid: "QmSource".to_string(),
+            target_cid: "QmTarget".to_string(),
+            link_name: "related".to_string(),
+        };
+
+        let debug_str = format!("{:?}", cmd);
+        assert!(debug_str.contains("LinkCids"));
+    }
+
+    #[test]
+    fn test_ipld_command_pin_cid() {
+        let cmd = IpldCommand::PinCid {
+            cid: "QmPin".to_string(),
+            recursive: false,
+        };
+
+        let debug_str = format!("{:?}", cmd);
+        assert!(debug_str.contains("PinCid"));
+    }
+
+    #[test]
+    fn test_ipld_command_unpin_cid() {
+        let cmd = IpldCommand::UnpinCid {
+            cid: "QmUnpin".to_string(),
+        };
+
+        let debug_str = format!("{:?}", cmd);
+        assert!(debug_str.contains("UnpinCid"));
+    }
+
+    // ========== ContextCommand Tests ==========
+
+    #[test]
+    fn test_context_command_create_bounded_context() {
+        let cmd = ContextCommand::CreateBoundedContext {
+            context_id: "billing".to_string(),
+            name: "Billing".to_string(),
+            description: "Handles billing operations".to_string(),
+        };
+
+        let debug_str = format!("{:?}", cmd);
+        assert!(debug_str.contains("CreateBoundedContext"));
+    }
+
+    #[test]
+    fn test_context_command_add_aggregate() {
+        let cmd = ContextCommand::AddAggregate {
+            context_id: "billing".to_string(),
+            aggregate_id: Uuid::new_v4(),
+            aggregate_type: "Invoice".to_string(),
+        };
+
+        let debug_str = format!("{:?}", cmd);
+        assert!(debug_str.contains("AddAggregate"));
+    }
+
+    #[test]
+    fn test_context_command_add_entity() {
+        let cmd = ContextCommand::AddEntity {
+            aggregate_id: Uuid::new_v4(),
+            entity_id: Uuid::new_v4(),
+            entity_type: "LineItem".to_string(),
+            properties: serde_json::json!({"amount": 99.99}),
+        };
+
+        let debug_str = format!("{:?}", cmd);
+        assert!(debug_str.contains("AddEntity"));
+    }
+
+    // ========== WorkflowCommand Tests ==========
+
+    #[test]
+    fn test_workflow_command_define_workflow() {
+        let cmd = WorkflowCommand::DefineWorkflow {
+            workflow_id: Uuid::new_v4(),
+            name: "Approval Flow".to_string(),
+            version: "3.0.0".to_string(),
+        };
+
+        let debug_str = format!("{:?}", cmd);
+        assert!(debug_str.contains("DefineWorkflow"));
+    }
+
+    #[test]
+    fn test_workflow_command_add_state() {
+        let cmd = WorkflowCommand::AddState {
+            workflow_id: Uuid::new_v4(),
+            state_id: "review".to_string(),
+            state_type: "intermediate".to_string(),
+        };
+
+        let debug_str = format!("{:?}", cmd);
+        assert!(debug_str.contains("AddState"));
+    }
+
+    #[test]
+    fn test_workflow_command_add_transition() {
+        let cmd = WorkflowCommand::AddTransition {
+            workflow_id: Uuid::new_v4(),
+            from_state: "draft".to_string(),
+            to_state: "review".to_string(),
+            trigger: "submit".to_string(),
+        };
+
+        let debug_str = format!("{:?}", cmd);
+        assert!(debug_str.contains("AddTransition"));
+    }
+
+    #[test]
+    fn test_workflow_command_create_instance() {
+        let cmd = WorkflowCommand::CreateInstance {
+            workflow_id: Uuid::new_v4(),
+            instance_id: Uuid::new_v4(),
+        };
+
+        let debug_str = format!("{:?}", cmd);
+        assert!(debug_str.contains("CreateInstance"));
+    }
+
+    #[test]
+    fn test_workflow_command_trigger_transition() {
+        let cmd = WorkflowCommand::TriggerTransition {
+            instance_id: Uuid::new_v4(),
+            trigger: "approve".to_string(),
+        };
+
+        let debug_str = format!("{:?}", cmd);
+        assert!(debug_str.contains("TriggerTransition"));
+    }
+
+    // ========== ConceptCommand Tests ==========
+
+    #[test]
+    fn test_concept_command_define_concept() {
+        let cmd = ConceptCommand::DefineConcept {
+            concept_id: "animal".to_string(),
+            name: "Animal".to_string(),
+            definition: "A living organism".to_string(),
+        };
+
+        let debug_str = format!("{:?}", cmd);
+        assert!(debug_str.contains("DefineConcept"));
+    }
+
+    #[test]
+    fn test_concept_command_add_properties() {
+        let cmd = ConceptCommand::AddProperties {
+            concept_id: "dog".to_string(),
+            properties: vec![("legs".to_string(), 4.0)],
+        };
+
+        let debug_str = format!("{:?}", cmd);
+        assert!(debug_str.contains("AddProperties"));
+    }
+
+    #[test]
+    fn test_concept_command_add_relation() {
+        let cmd = ConceptCommand::AddRelation {
+            source_concept: "dog".to_string(),
+            target_concept: "animal".to_string(),
+            relation_type: "is-a".to_string(),
+            strength: 1.0,
+        };
+
+        let debug_str = format!("{:?}", cmd);
+        assert!(debug_str.contains("AddRelation"));
+    }
+
+    // ========== ComposedCommand Tests ==========
+
+    #[test]
+    fn test_composed_command_add_subgraph() {
+        let cmd = ComposedCommand::AddSubGraph {
+            subgraph_id: Uuid::new_v4(),
+            graph_type: "context".to_string(),
+            namespace: "orders".to_string(),
+        };
+
+        let debug_str = format!("{:?}", cmd);
+        assert!(debug_str.contains("AddSubGraph"));
+    }
+
+    #[test]
+    fn test_composed_command_link_across_graphs() {
+        let cmd = ComposedCommand::LinkAcrossGraphs {
+            source_graph: Uuid::new_v4(),
+            source_node: "order-1".to_string(),
+            target_graph: Uuid::new_v4(),
+            target_node: "invoice-1".to_string(),
+        };
+
+        let debug_str = format!("{:?}", cmd);
+        assert!(debug_str.contains("LinkAcrossGraphs"));
+    }
+
+    // ========== event_to_nats_headers Tests ==========
+
+    #[test]
+    fn test_event_to_nats_headers_basic() {
+        let event = GraphEvent {
+            event_id: Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap(),
+            aggregate_id: Uuid::parse_str("22222222-2222-2222-2222-222222222222").unwrap(),
+            correlation_id: Uuid::parse_str("33333333-3333-3333-3333-333333333333").unwrap(),
+            causation_id: None,
+            payload: EventPayload::Generic(GenericPayload {
+                event_type: "Test".to_string(),
+                data: serde_json::json!({}),
+            }),
+        };
+
+        let headers = event_to_nats_headers(&event);
+
+        assert_eq!(headers.get("Nats-Msg-Id"), Some(&"11111111-1111-1111-1111-111111111111".to_string()));
+        assert_eq!(headers.get("Correlation-Id"), Some(&"33333333-3333-3333-3333-333333333333".to_string()));
+        assert_eq!(headers.get("Aggregate-Id"), Some(&"22222222-2222-2222-2222-222222222222".to_string()));
+        assert!(headers.get("Causation-Id").is_none());
+    }
+
+    #[test]
+    fn test_event_to_nats_headers_with_causation() {
+        let causation = Uuid::parse_str("44444444-4444-4444-4444-444444444444").unwrap();
+        let event = GraphEvent {
+            event_id: Uuid::new_v4(),
+            aggregate_id: Uuid::new_v4(),
+            correlation_id: Uuid::new_v4(),
+            causation_id: Some(causation),
+            payload: EventPayload::Generic(GenericPayload {
+                event_type: "Test".to_string(),
+                data: serde_json::json!({}),
+            }),
+        };
+
+        let headers = event_to_nats_headers(&event);
+
+        assert!(headers.get("Causation-Id").is_some());
+        assert_eq!(headers.get("Causation-Id"), Some(&"44444444-4444-4444-4444-444444444444".to_string()));
+    }
+
+    #[test]
+    fn test_event_to_nats_headers_header_count() {
+        let event = GraphEvent {
+            event_id: Uuid::new_v4(),
+            aggregate_id: Uuid::new_v4(),
+            correlation_id: Uuid::new_v4(),
+            causation_id: None,
+            payload: EventPayload::Generic(GenericPayload {
+                event_type: "Test".to_string(),
+                data: serde_json::json!({}),
+            }),
+        };
+
+        let headers = event_to_nats_headers(&event);
+        assert_eq!(headers.len(), 3); // event_id, correlation_id, aggregate_id
+
+        let event_with_causation = GraphEvent {
+            causation_id: Some(Uuid::new_v4()),
+            ..event
+        };
+
+        let headers_with_causation = event_to_nats_headers(&event_with_causation);
+        assert_eq!(headers_with_causation.len(), 4); // +causation_id
+    }
 }

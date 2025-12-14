@@ -622,4 +622,444 @@ mod tests {
         // Results should be equivalent
         assert_eq!(result1.unwrap().len(), result2.unwrap().len());
     }
+
+    // ========== Natural Transformation Tests ==========
+
+    #[test]
+    fn test_functor_trait_map_morphism() {
+        use crate::functors::{Functor, MorphismData};
+
+        let mut functor = DomainFunctor::new("test".to_string());
+
+        let node_a = GenericNode::new("A", "data");
+        let node_b = GenericNode::new("B", "data");
+
+        functor.map_node(&node_a, DomainAggregateType::Policy);
+        functor.map_node(&node_b, DomainAggregateType::Location);
+
+        let morphism = MorphismData {
+            id: "m1".to_string(),
+            morphism_type: "transition".to_string(),
+            properties: std::collections::HashMap::new(),
+        };
+
+        let mapped = Functor::<GenericNode<&str>, DomainObject>::map_morphism(
+            &functor, &node_a, &node_b, &morphism
+        );
+
+        // map_morphism returns cloned morphism data
+        assert_eq!(mapped.id, morphism.id);
+        assert_eq!(mapped.morphism_type, morphism.morphism_type);
+    }
+
+    #[test]
+    fn test_domain_object_properties() {
+        let mut functor = DomainFunctor::new("test".to_string());
+
+        let node = GenericNode::new("node1", "some_data");
+        let obj = functor.map_node(&node, DomainAggregateType::Person);
+
+        assert_eq!(obj.name, "node1");
+        assert_eq!(obj.version, 1);
+        assert!(obj.properties.is_empty());
+    }
+
+    #[test]
+    fn test_domain_relationship_properties() {
+        let mut functor = DomainFunctor::new("test".to_string());
+
+        let node1 = GenericNode::new("N1", "d1");
+        let node2 = GenericNode::new("N2", "d2");
+
+        functor.map_node(&node1, DomainAggregateType::Organization);
+        functor.map_node(&node2, DomainAggregateType::Person);
+
+        let edge = GenericEdge::with_id("employs", "N1", "N2", "employment");
+        let rel = functor.map_edge(&edge, RelationshipType::Contains);
+
+        assert!(rel.is_some());
+        let relationship = rel.unwrap();
+        assert_eq!(relationship.id, "employs");
+        assert!(relationship.properties.is_empty());
+    }
+
+    // ========== DomainObject Version Tests ==========
+
+    #[test]
+    fn test_domain_object_initial_version() {
+        let mut functor = DomainFunctor::new("test".to_string());
+        let node = GenericNode::new("versioned", "data");
+
+        let obj = functor.map_node(&node, DomainAggregateType::Policy);
+
+        assert_eq!(obj.version, 1);
+    }
+
+    // ========== Composition Validation Tests ==========
+
+    #[test]
+    fn test_verify_composition_empty() {
+        let functor = DomainFunctor::new("test".to_string());
+
+        // Empty composition is valid
+        assert!(functor.verify_composition(&[]));
+    }
+
+    #[test]
+    fn test_verify_composition_single() {
+        let mut functor = DomainFunctor::new("test".to_string());
+
+        let node1 = GenericNode::new("A", "d");
+        let node2 = GenericNode::new("B", "d");
+
+        functor.map_node(&node1, DomainAggregateType::Policy);
+        functor.map_node(&node2, DomainAggregateType::Location);
+
+        let edge = GenericEdge::with_id("AB", "A", "B", "step");
+        let rel = functor.map_edge(&edge, RelationshipType::WorkflowStep).unwrap();
+
+        // Single relationship is always valid
+        assert!(functor.verify_composition(&[rel]));
+    }
+
+    #[test]
+    fn test_verify_composition_valid_chain() {
+        let mut functor = DomainFunctor::new("test".to_string());
+
+        let nodes: Vec<_> = (0..4).map(|i| GenericNode::new(format!("N{}", i).leak(), "d")).collect();
+        for node in &nodes {
+            functor.map_node(node, DomainAggregateType::Policy);
+        }
+
+        let edges = vec![
+            GenericEdge::with_id("E01", "N0", "N1", "s"),
+            GenericEdge::with_id("E12", "N1", "N2", "s"),
+            GenericEdge::with_id("E23", "N2", "N3", "s"),
+        ];
+
+        let rels: Vec<_> = edges.iter()
+            .map(|e| functor.map_edge(e, RelationshipType::WorkflowStep).unwrap())
+            .collect();
+
+        assert!(functor.verify_composition(&rels));
+    }
+
+    // ========== RelationshipType Tests ==========
+
+    #[test]
+    fn test_relationship_type_equality() {
+        assert_eq!(RelationshipType::Contains, RelationshipType::Contains);
+        assert_eq!(RelationshipType::References, RelationshipType::References);
+        assert_ne!(RelationshipType::Contains, RelationshipType::References);
+
+        let custom1 = RelationshipType::Custom("type1".to_string());
+        let custom2 = RelationshipType::Custom("type1".to_string());
+        let custom3 = RelationshipType::Custom("type2".to_string());
+
+        assert_eq!(custom1, custom2);
+        assert_ne!(custom1, custom3);
+    }
+
+    #[test]
+    fn test_all_relationship_types_mappable() {
+        let mut functor = DomainFunctor::new("test".to_string());
+
+        // Create 6 pairs of nodes
+        for i in 0..12 {
+            let node = GenericNode::new(format!("N{}", i).leak(), "d");
+            functor.map_node(&node, DomainAggregateType::Policy);
+        }
+
+        let relationship_types = vec![
+            RelationshipType::Contains,
+            RelationshipType::References,
+            RelationshipType::DependsOn,
+            RelationshipType::WorkflowStep,
+            RelationshipType::ParentChild,
+            RelationshipType::Custom("test_custom".to_string()),
+        ];
+
+        for (i, rel_type) in relationship_types.into_iter().enumerate() {
+            let from = format!("N{}", i * 2);
+            let to = format!("N{}", i * 2 + 1);
+            let edge_id: &'static str = format!("E{}", i).leak();
+            let edge = GenericEdge::with_id(edge_id, from.leak(), to.leak(), "step");
+
+            let result = functor.map_edge(&edge, rel_type.clone());
+            assert!(result.is_some(), "Failed to map edge with {:?}", rel_type);
+        }
+    }
+
+    // ========== DomainAggregateType Tests ==========
+
+    #[test]
+    fn test_domain_aggregate_type_equality() {
+        assert_eq!(DomainAggregateType::Policy, DomainAggregateType::Policy);
+        assert_eq!(DomainAggregateType::Location, DomainAggregateType::Location);
+        assert_ne!(DomainAggregateType::Policy, DomainAggregateType::Location);
+
+        let custom1 = DomainAggregateType::Custom("custom1".to_string());
+        let custom2 = DomainAggregateType::Custom("custom1".to_string());
+        let custom3 = DomainAggregateType::Custom("custom2".to_string());
+
+        assert_eq!(custom1, custom2);
+        assert_ne!(custom1, custom3);
+    }
+
+    #[test]
+    fn test_domain_aggregate_type_hash() {
+        use std::collections::HashSet;
+
+        let mut set = HashSet::new();
+        set.insert(DomainAggregateType::Policy);
+        set.insert(DomainAggregateType::Location);
+        set.insert(DomainAggregateType::Organization);
+        set.insert(DomainAggregateType::Person);
+        set.insert(DomainAggregateType::Custom("custom".to_string()));
+
+        assert_eq!(set.len(), 5);
+
+        // Inserting same value should not increase size
+        set.insert(DomainAggregateType::Policy);
+        assert_eq!(set.len(), 5);
+    }
+
+    // ========== Functor Laws Verification ==========
+
+    #[test]
+    fn test_verify_laws_empty_functor() {
+        let functor = DomainFunctor::new("test".to_string());
+        assert!(functor.verify_laws());
+    }
+
+    #[test]
+    fn test_verify_laws_with_mappings() {
+        let mut functor = DomainFunctor::new("test".to_string());
+
+        let node_a = GenericNode::new("A", "d");
+        let node_b = GenericNode::new("B", "d");
+        let node_c = GenericNode::new("C", "d");
+
+        functor.map_node(&node_a, DomainAggregateType::Policy);
+        functor.map_node(&node_b, DomainAggregateType::Location);
+        functor.map_node(&node_c, DomainAggregateType::Organization);
+
+        let edge_ab = GenericEdge::with_id("AB", "A", "B", "s");
+        let edge_bc = GenericEdge::with_id("BC", "B", "C", "s");
+
+        functor.map_edge(&edge_ab, RelationshipType::WorkflowStep);
+        functor.map_edge(&edge_bc, RelationshipType::WorkflowStep);
+
+        // Compose path to populate cache
+        functor.compose_path(&["AB".to_string(), "BC".to_string()]);
+
+        assert!(functor.verify_laws());
+    }
+
+    // ========== Serialization Tests ==========
+
+    #[test]
+    fn test_domain_functor_serialization() {
+        let mut functor = DomainFunctor::new("serializable".to_string());
+
+        let node = GenericNode::new("N1", "data");
+        functor.map_node(&node, DomainAggregateType::Policy);
+
+        let json = serde_json::to_string(&functor).unwrap();
+        assert!(json.contains("serializable"));
+        assert!(json.contains("N1"));
+
+        let deserialized: DomainFunctor = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.functor_id, "serializable");
+        assert!(deserialized.get_domain_object("N1").is_some());
+    }
+
+    #[test]
+    fn test_domain_object_serialization() {
+        let obj = DomainObject {
+            id: Uuid::now_v7(),
+            aggregate_type: DomainAggregateType::Person,
+            name: "Test Person".to_string(),
+            properties: {
+                let mut props = std::collections::HashMap::new();
+                props.insert("age".to_string(), serde_json::json!(30));
+                props
+            },
+            version: 5,
+        };
+
+        let json = serde_json::to_string(&obj).unwrap();
+        let deserialized: DomainObject = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(deserialized.id, obj.id);
+        assert_eq!(deserialized.name, "Test Person");
+        assert_eq!(deserialized.version, 5);
+        assert_eq!(deserialized.properties["age"], serde_json::json!(30));
+    }
+
+    #[test]
+    fn test_domain_relationship_serialization() {
+        let rel = DomainRelationship {
+            id: "rel1".to_string(),
+            source_id: Uuid::now_v7(),
+            target_id: Uuid::now_v7(),
+            relationship_type: RelationshipType::ParentChild,
+            properties: std::collections::HashMap::new(),
+        };
+
+        let json = serde_json::to_string(&rel).unwrap();
+        let deserialized: DomainRelationship = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(deserialized.id, "rel1");
+        assert_eq!(deserialized.relationship_type, RelationshipType::ParentChild);
+    }
+
+    // ========== Edge Case Tests ==========
+
+    #[test]
+    fn test_map_edge_source_missing() {
+        let mut functor = DomainFunctor::new("test".to_string());
+
+        // Only map target node
+        let node2 = GenericNode::new("N2", "d");
+        functor.map_node(&node2, DomainAggregateType::Policy);
+
+        let edge = GenericEdge::with_id("E12", "N1", "N2", "s");
+        let result = functor.map_edge(&edge, RelationshipType::References);
+
+        // Should return None since source is not mapped
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_map_edge_target_missing() {
+        let mut functor = DomainFunctor::new("test".to_string());
+
+        // Only map source node
+        let node1 = GenericNode::new("N1", "d");
+        functor.map_node(&node1, DomainAggregateType::Policy);
+
+        let edge = GenericEdge::with_id("E12", "N1", "N2", "s");
+        let result = functor.map_edge(&edge, RelationshipType::References);
+
+        // Should return None since target is not mapped
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_compose_path_single_edge() {
+        let mut functor = DomainFunctor::new("test".to_string());
+
+        let node_a = GenericNode::new("A", "d");
+        let node_b = GenericNode::new("B", "d");
+
+        functor.map_node(&node_a, DomainAggregateType::Policy);
+        functor.map_node(&node_b, DomainAggregateType::Location);
+
+        let edge = GenericEdge::with_id("AB", "A", "B", "s");
+        functor.map_edge(&edge, RelationshipType::WorkflowStep);
+
+        let path = vec!["AB".to_string()];
+        let result = functor.compose_path(&path);
+
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_compose_path_long_chain() {
+        let mut functor = DomainFunctor::new("test".to_string());
+
+        // Create a chain of 10 nodes
+        for i in 0..10 {
+            let node = GenericNode::new(format!("N{}", i).leak(), "d");
+            functor.map_node(&node, DomainAggregateType::Policy);
+        }
+
+        // Create 9 edges connecting them
+        let mut path = Vec::new();
+        for i in 0..9 {
+            let from = format!("N{}", i);
+            let to = format!("N{}", i + 1);
+            let edge_id: &'static str = format!("E{}", i).leak();
+            let edge = GenericEdge::with_id(edge_id, from.leak(), to.leak(), "s");
+            functor.map_edge(&edge, RelationshipType::WorkflowStep);
+            path.push(format!("E{}", i));
+        }
+
+        let result = functor.compose_path(&path);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().len(), 9);
+    }
+
+    #[test]
+    fn test_domain_objects_iterator_empty() {
+        let functor = DomainFunctor::new("test".to_string());
+        let objects: Vec<_> = functor.domain_objects().collect();
+        assert!(objects.is_empty());
+    }
+
+    #[test]
+    fn test_relationships_iterator_empty() {
+        let functor = DomainFunctor::new("test".to_string());
+        let relationships: Vec<_> = functor.relationships().collect();
+        assert!(relationships.is_empty());
+    }
+
+    // ========== Functor Trait Full Tests ==========
+
+    #[test]
+    fn test_functor_trait_verify_laws() {
+        use crate::functors::Functor;
+
+        let mut functor = DomainFunctor::new("test".to_string());
+
+        // Add some mappings
+        let node_a = GenericNode::new("A", "d");
+        let node_b = GenericNode::new("B", "d");
+
+        functor.map_node(&node_a, DomainAggregateType::Policy);
+        functor.map_node(&node_b, DomainAggregateType::Location);
+
+        let edge = GenericEdge::with_id("AB", "A", "B", "s");
+        functor.map_edge(&edge, RelationshipType::WorkflowStep);
+
+        // Verify through the trait
+        assert!(Functor::<GenericNode<&str>, DomainObject>::verify_functor_laws(&functor));
+    }
+
+    #[test]
+    fn test_functor_trait_map_object_with_mapping() {
+        use crate::functors::Functor;
+
+        let mut functor = DomainFunctor::new("test".to_string());
+        let node = GenericNode::new("mapped", "data");
+
+        // Map the node first
+        let original = functor.map_node(&node, DomainAggregateType::Organization);
+
+        // Now use the trait method
+        let mapped = Functor::<GenericNode<&str>, DomainObject>::map_object(&functor, &node);
+
+        // Should return the already-mapped object
+        assert_eq!(mapped.id, original.id);
+        assert_eq!(mapped.aggregate_type, DomainAggregateType::Organization);
+    }
+
+    // ========== DomainAggregateType Display Tests ==========
+
+    #[test]
+    fn test_domain_aggregate_type_display_all() {
+        let types = vec![
+            (DomainAggregateType::Policy, "Policy"),
+            (DomainAggregateType::Location, "Location"),
+            (DomainAggregateType::Organization, "Organization"),
+            (DomainAggregateType::Person, "Person"),
+            (DomainAggregateType::Custom("MyType".to_string()), "Custom(MyType)"),
+        ];
+
+        for (agg_type, expected) in types {
+            assert_eq!(format!("{}", agg_type), expected);
+        }
+    }
 }

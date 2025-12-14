@@ -4,6 +4,40 @@ use crate::core::{GraphProjection, Node};
 use crate::error::{GraphError, Result};
 use std::collections::{HashMap, HashSet, VecDeque};
 
+// ============================================================================
+// Traversal State Types
+// ============================================================================
+
+/// Result of a level-order BFS traversal
+#[derive(Debug, Clone, PartialEq)]
+pub struct LevelOrderResult {
+    /// Nodes organized by their level (distance from start)
+    pub levels: Vec<Vec<String>>,
+    /// Total number of nodes visited
+    pub total_nodes: usize,
+    /// Maximum depth reached
+    pub max_depth: usize,
+}
+
+/// Visit state for cycle detection
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum VisitState {
+    Unvisited,
+    InProgress,
+    Completed,
+}
+
+/// Result of connected components analysis
+#[derive(Debug, Clone, PartialEq)]
+pub struct ConnectedComponentsResult {
+    /// Each component as a list of node IDs
+    pub components: Vec<Vec<String>>,
+    /// Number of components
+    pub count: usize,
+    /// Size of the largest component
+    pub largest_size: usize,
+}
+
 /// Breadth-first search traversal
 pub fn bfs<P: GraphProjection>(projection: &P, start: &str) -> Result<Vec<String>> {
     if projection.get_node(start).is_none() {
@@ -111,6 +145,369 @@ where
     }
 
     Ok(result)
+}
+
+// ============================================================================
+// Extended Traversal Algorithms
+// ============================================================================
+
+/// Depth-first search with post-order traversal
+///
+/// Visits children before parents (useful for dependency resolution).
+pub fn dfs_postorder<P: GraphProjection>(projection: &P, start: &str) -> Result<Vec<String>> {
+    if projection.get_node(start).is_none() {
+        return Err(GraphError::NodeNotFound(start.to_string()));
+    }
+
+    let mut visited = HashSet::new();
+    let mut result = Vec::new();
+
+    dfs_postorder_helper(projection, start, &mut visited, &mut result);
+
+    Ok(result)
+}
+
+fn dfs_postorder_helper<P: GraphProjection>(
+    projection: &P,
+    current: &str,
+    visited: &mut HashSet<String>,
+    result: &mut Vec<String>,
+) {
+    if visited.contains(current) {
+        return;
+    }
+
+    visited.insert(current.to_string());
+
+    // Visit all children first
+    for neighbor in projection.neighbors(current) {
+        if !visited.contains(neighbor) {
+            dfs_postorder_helper(projection, neighbor, visited, result);
+        }
+    }
+
+    // Then add current node (post-order)
+    result.push(current.to_string());
+}
+
+/// Level-order BFS traversal that returns nodes grouped by their level
+pub fn bfs_level_order<P: GraphProjection>(projection: &P, start: &str) -> Result<LevelOrderResult> {
+    if projection.get_node(start).is_none() {
+        return Err(GraphError::NodeNotFound(start.to_string()));
+    }
+
+    let mut visited = HashSet::new();
+    let mut queue = VecDeque::new();
+    let mut levels: Vec<Vec<String>> = Vec::new();
+
+    queue.push_back((start.to_string(), 0usize));
+    visited.insert(start.to_string());
+
+    while let Some((current, level)) = queue.pop_front() {
+        // Ensure we have a vector for this level
+        while levels.len() <= level {
+            levels.push(Vec::new());
+        }
+
+        levels[level].push(current.clone());
+
+        for neighbor in projection.neighbors(&current) {
+            if !visited.contains(neighbor) {
+                visited.insert(neighbor.to_string());
+                queue.push_back((neighbor.to_string(), level + 1));
+            }
+        }
+    }
+
+    let total_nodes = levels.iter().map(|l| l.len()).sum();
+    let max_depth = if levels.is_empty() { 0 } else { levels.len() - 1 };
+
+    Ok(LevelOrderResult {
+        levels,
+        total_nodes,
+        max_depth,
+    })
+}
+
+/// Detect if graph contains a cycle
+pub fn has_cycle<P: GraphProjection>(projection: &P) -> bool
+where
+    P::Node: Node,
+{
+    let nodes = projection.nodes();
+    let mut state: HashMap<String, VisitState> = HashMap::new();
+
+    for node in &nodes {
+        state.insert(node.id(), VisitState::Unvisited);
+    }
+
+    for node in &nodes {
+        let node_id = node.id();
+        if state.get(&node_id) == Some(&VisitState::Unvisited) {
+            if has_cycle_dfs(projection, &node_id, &mut state) {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+fn has_cycle_dfs<P: GraphProjection>(
+    projection: &P,
+    current: &str,
+    state: &mut HashMap<String, VisitState>,
+) -> bool {
+    state.insert(current.to_string(), VisitState::InProgress);
+
+    for neighbor in projection.neighbors(current) {
+        match state.get(neighbor) {
+            Some(VisitState::InProgress) => return true, // Back edge found
+            Some(VisitState::Unvisited) => {
+                if has_cycle_dfs(projection, neighbor, state) {
+                    return true;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    state.insert(current.to_string(), VisitState::Completed);
+    false
+}
+
+/// Find all connected components in the graph (treating edges as undirected)
+pub fn connected_components<P: GraphProjection>(projection: &P) -> ConnectedComponentsResult
+where
+    P::Node: Node,
+{
+    let nodes = projection.nodes();
+    let mut visited = HashSet::new();
+    let mut components = Vec::new();
+
+    // Build undirected adjacency for component detection
+    let mut undirected_adj: HashMap<String, HashSet<String>> = HashMap::new();
+
+    for node in &nodes {
+        let node_id = node.id();
+        undirected_adj.entry(node_id.clone()).or_default();
+
+        for neighbor in projection.neighbors(&node_id) {
+            undirected_adj.entry(node_id.clone()).or_default().insert(neighbor.to_string());
+            undirected_adj.entry(neighbor.to_string()).or_default().insert(node_id.clone());
+        }
+    }
+
+    for node in &nodes {
+        let node_id = node.id();
+        if !visited.contains(&node_id) {
+            let mut component = Vec::new();
+            let mut queue = VecDeque::new();
+
+            queue.push_back(node_id.clone());
+            visited.insert(node_id.clone());
+
+            while let Some(current) = queue.pop_front() {
+                component.push(current.clone());
+
+                if let Some(neighbors) = undirected_adj.get(&current) {
+                    for neighbor in neighbors {
+                        if !visited.contains(neighbor) {
+                            visited.insert(neighbor.clone());
+                            queue.push_back(neighbor.clone());
+                        }
+                    }
+                }
+            }
+
+            components.push(component);
+        }
+    }
+
+    let count = components.len();
+    let largest_size = components.iter().map(|c| c.len()).max().unwrap_or(0);
+
+    ConnectedComponentsResult {
+        components,
+        count,
+        largest_size,
+    }
+}
+
+/// Check if there exists a path between two nodes
+pub fn path_exists<P: GraphProjection>(projection: &P, from: &str, to: &str) -> Result<bool> {
+    if projection.get_node(from).is_none() {
+        return Err(GraphError::NodeNotFound(from.to_string()));
+    }
+    if projection.get_node(to).is_none() {
+        return Err(GraphError::NodeNotFound(to.to_string()));
+    }
+
+    if from == to {
+        return Ok(true);
+    }
+
+    // Use BFS to check reachability
+    let mut visited = HashSet::new();
+    let mut queue = VecDeque::new();
+
+    queue.push_back(from);
+    visited.insert(from);
+
+    while let Some(current) = queue.pop_front() {
+        for neighbor in projection.neighbors(current) {
+            if neighbor == to {
+                return Ok(true);
+            }
+
+            if !visited.contains(neighbor) {
+                visited.insert(neighbor);
+                queue.push_back(neighbor);
+            }
+        }
+    }
+
+    Ok(false)
+}
+
+/// Find all nodes reachable from a given node
+pub fn reachable_nodes<P: GraphProjection>(projection: &P, start: &str) -> Result<HashSet<String>> {
+    if projection.get_node(start).is_none() {
+        return Err(GraphError::NodeNotFound(start.to_string()));
+    }
+
+    let visited = bfs(projection, start)?;
+    Ok(visited.into_iter().collect())
+}
+
+/// Calculate the distance from start to all reachable nodes
+pub fn distances_from<P: GraphProjection>(projection: &P, start: &str) -> Result<HashMap<String, usize>> {
+    if projection.get_node(start).is_none() {
+        return Err(GraphError::NodeNotFound(start.to_string()));
+    }
+
+    let mut distances = HashMap::new();
+    let mut visited = HashSet::new();
+    let mut queue = VecDeque::new();
+
+    distances.insert(start.to_string(), 0);
+    visited.insert(start);
+    queue.push_back((start, 0));
+
+    while let Some((current, dist)) = queue.pop_front() {
+        for neighbor in projection.neighbors(current) {
+            if !visited.contains(neighbor) {
+                visited.insert(neighbor);
+                distances.insert(neighbor.to_string(), dist + 1);
+                queue.push_back((neighbor, dist + 1));
+            }
+        }
+    }
+
+    Ok(distances)
+}
+
+/// Calculate the eccentricity of a node (maximum distance to any reachable node)
+pub fn eccentricity<P: GraphProjection>(projection: &P, node: &str) -> Result<usize> {
+    let distances = distances_from(projection, node)?;
+    Ok(distances.values().copied().max().unwrap_or(0))
+}
+
+/// Find the diameter of the graph (maximum eccentricity)
+pub fn diameter<P: GraphProjection>(projection: &P) -> Result<usize>
+where
+    P::Node: Node,
+{
+    let nodes = projection.nodes();
+    if nodes.is_empty() {
+        return Ok(0);
+    }
+
+    let mut max_eccentricity = 0;
+
+    for node in &nodes {
+        let ecc = eccentricity(projection, &node.id())?;
+        if ecc > max_eccentricity {
+            max_eccentricity = ecc;
+        }
+    }
+
+    Ok(max_eccentricity)
+}
+
+/// Iterative DFS traversal (non-recursive, for large graphs)
+pub fn dfs_iterative<P: GraphProjection>(projection: &P, start: &str) -> Result<Vec<String>> {
+    if projection.get_node(start).is_none() {
+        return Err(GraphError::NodeNotFound(start.to_string()));
+    }
+
+    let mut visited: HashSet<String> = HashSet::new();
+    let mut stack = Vec::new();
+    let mut result = Vec::new();
+
+    stack.push(start.to_string());
+
+    while let Some(current) = stack.pop() {
+        if visited.contains(&current) {
+            continue;
+        }
+
+        visited.insert(current.clone());
+        result.push(current.clone());
+
+        // Push neighbors in reverse order to maintain left-to-right traversal
+        let neighbors: Vec<String> = projection.neighbors(&current)
+            .into_iter()
+            .map(|s| s.to_string())
+            .collect();
+        for neighbor in neighbors.into_iter().rev() {
+            if !visited.contains(&neighbor) {
+                stack.push(neighbor);
+            }
+        }
+    }
+
+    Ok(result)
+}
+
+/// Count the number of paths between two nodes (without cycles)
+pub fn count_paths<P: GraphProjection>(projection: &P, from: &str, to: &str) -> Result<usize> {
+    if projection.get_node(from).is_none() {
+        return Err(GraphError::NodeNotFound(from.to_string()));
+    }
+    if projection.get_node(to).is_none() {
+        return Err(GraphError::NodeNotFound(to.to_string()));
+    }
+
+    if from == to {
+        return Ok(1);
+    }
+
+    let mut visited = HashSet::new();
+    Ok(count_paths_helper(projection, from, to, &mut visited))
+}
+
+fn count_paths_helper<P: GraphProjection>(
+    projection: &P,
+    current: &str,
+    target: &str,
+    visited: &mut HashSet<String>,
+) -> usize {
+    if current == target {
+        return 1;
+    }
+
+    visited.insert(current.to_string());
+    let mut count = 0;
+
+    for neighbor in projection.neighbors(current) {
+        if !visited.contains(neighbor) {
+            count += count_paths_helper(projection, neighbor, target, visited);
+        }
+    }
+
+    visited.remove(current);
+    count
 }
 
 #[cfg(test)]
@@ -686,5 +1083,493 @@ mod tests {
         let pos_e = result.iter().position(|x| x == "E").unwrap();
         let pos_f = result.iter().position(|x| x == "F").unwrap();
         assert!(pos_d < pos_e && pos_e < pos_f);
+    }
+
+    // ========== DFS Post-order Tests ==========
+
+    #[test]
+    fn test_dfs_postorder_linear() {
+        let projection = create_linear_graph();
+        let result = dfs_postorder(&projection, "A").unwrap();
+
+        // Post-order: children first, then parent
+        // A -> B -> C becomes: C, B, A
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0], "C");
+        assert_eq!(result[1], "B");
+        assert_eq!(result[2], "A");
+    }
+
+    #[test]
+    fn test_dfs_postorder_branching() {
+        let projection = create_branching_graph();
+        let result = dfs_postorder(&projection, "A").unwrap();
+
+        // D must come before B and C, A must be last
+        assert_eq!(result.len(), 4);
+        assert_eq!(*result.last().unwrap(), "A");
+
+        let pos_d = result.iter().position(|x| x == "D").unwrap();
+        let pos_b = result.iter().position(|x| x == "B").unwrap();
+        let pos_c = result.iter().position(|x| x == "C").unwrap();
+
+        assert!(pos_d < pos_b || pos_d < pos_c);
+    }
+
+    #[test]
+    fn test_dfs_postorder_single_node() {
+        let mut projection = create_empty_projection();
+        let node = WorkflowNode::new("A", WorkflowNodeType::Start);
+        projection.nodes.insert("A".to_string(), node);
+        projection.adjacency.insert("A".to_string(), vec![]);
+
+        let result = dfs_postorder(&projection, "A").unwrap();
+        assert_eq!(result, vec!["A"]);
+    }
+
+    #[test]
+    fn test_dfs_postorder_not_found() {
+        let projection = create_linear_graph();
+        let result = dfs_postorder(&projection, "X");
+        assert!(result.is_err());
+    }
+
+    // ========== BFS Level Order Tests ==========
+
+    #[test]
+    fn test_bfs_level_order_linear() {
+        let projection = create_linear_graph();
+        let result = bfs_level_order(&projection, "A").unwrap();
+
+        assert_eq!(result.levels.len(), 3);
+        assert_eq!(result.levels[0], vec!["A"]);
+        assert_eq!(result.levels[1], vec!["B"]);
+        assert_eq!(result.levels[2], vec!["C"]);
+        assert_eq!(result.total_nodes, 3);
+        assert_eq!(result.max_depth, 2);
+    }
+
+    #[test]
+    fn test_bfs_level_order_branching() {
+        let projection = create_branching_graph();
+        let result = bfs_level_order(&projection, "A").unwrap();
+
+        assert_eq!(result.levels.len(), 3);
+        assert_eq!(result.levels[0], vec!["A"]);
+        assert_eq!(result.levels[1].len(), 2); // B and C
+        assert!(result.levels[1].contains(&"B".to_string()));
+        assert!(result.levels[1].contains(&"C".to_string()));
+        assert_eq!(result.levels[2], vec!["D"]);
+        assert_eq!(result.total_nodes, 4);
+        assert_eq!(result.max_depth, 2);
+    }
+
+    #[test]
+    fn test_bfs_level_order_single_node() {
+        let mut projection = create_empty_projection();
+        let node = WorkflowNode::new("A", WorkflowNodeType::Start);
+        projection.nodes.insert("A".to_string(), node);
+        projection.adjacency.insert("A".to_string(), vec![]);
+
+        let result = bfs_level_order(&projection, "A").unwrap();
+        assert_eq!(result.levels.len(), 1);
+        assert_eq!(result.total_nodes, 1);
+        assert_eq!(result.max_depth, 0);
+    }
+
+    #[test]
+    fn test_bfs_level_order_not_found() {
+        let projection = create_linear_graph();
+        let result = bfs_level_order(&projection, "X");
+        assert!(result.is_err());
+    }
+
+    // ========== Has Cycle Tests ==========
+
+    #[test]
+    fn test_has_cycle_dag() {
+        let projection = create_linear_graph();
+        assert!(!has_cycle(&projection));
+    }
+
+    #[test]
+    fn test_has_cycle_branching_dag() {
+        let projection = create_branching_graph();
+        assert!(!has_cycle(&projection));
+    }
+
+    #[test]
+    fn test_has_cycle_with_cycle() {
+        let mut projection = create_empty_projection();
+
+        for id in ["A", "B", "C"] {
+            let node = WorkflowNode::new(id, WorkflowNodeType::Start);
+            projection.nodes.insert(id.to_string(), node);
+        }
+
+        projection.adjacency.insert("A".to_string(), vec!["B".to_string()]);
+        projection.adjacency.insert("B".to_string(), vec!["C".to_string()]);
+        projection.adjacency.insert("C".to_string(), vec!["A".to_string()]);
+
+        assert!(has_cycle(&projection));
+    }
+
+    #[test]
+    fn test_has_cycle_self_loop() {
+        let mut projection = create_empty_projection();
+
+        let node = WorkflowNode::new("A", WorkflowNodeType::Start);
+        projection.nodes.insert("A".to_string(), node);
+        projection.adjacency.insert("A".to_string(), vec!["A".to_string()]);
+
+        assert!(has_cycle(&projection));
+    }
+
+    #[test]
+    fn test_has_cycle_empty_graph() {
+        let projection = create_empty_projection();
+        assert!(!has_cycle(&projection));
+    }
+
+    // ========== Connected Components Tests ==========
+
+    #[test]
+    fn test_connected_components_single() {
+        let projection = create_linear_graph();
+        let result = connected_components(&projection);
+
+        assert_eq!(result.count, 1);
+        assert_eq!(result.largest_size, 3);
+        assert_eq!(result.components.len(), 1);
+    }
+
+    #[test]
+    fn test_connected_components_disconnected() {
+        let projection = create_disconnected_graph();
+        let result = connected_components(&projection);
+
+        assert_eq!(result.count, 2);
+        assert_eq!(result.largest_size, 2);
+    }
+
+    #[test]
+    fn test_connected_components_empty() {
+        let projection = create_empty_projection();
+        let result = connected_components(&projection);
+
+        assert_eq!(result.count, 0);
+        assert_eq!(result.largest_size, 0);
+    }
+
+    #[test]
+    fn test_connected_components_isolated_nodes() {
+        let mut projection = create_empty_projection();
+
+        for id in ["A", "B", "C"] {
+            let node = WorkflowNode::new(id, WorkflowNodeType::Start);
+            projection.nodes.insert(id.to_string(), node);
+            projection.adjacency.insert(id.to_string(), vec![]);
+        }
+
+        let result = connected_components(&projection);
+        assert_eq!(result.count, 3);
+        assert_eq!(result.largest_size, 1);
+    }
+
+    // ========== Path Exists Tests ==========
+
+    #[test]
+    fn test_path_exists_linear() {
+        let projection = create_linear_graph();
+
+        assert!(path_exists(&projection, "A", "C").unwrap());
+        assert!(path_exists(&projection, "A", "B").unwrap());
+        assert!(!path_exists(&projection, "C", "A").unwrap());
+    }
+
+    #[test]
+    fn test_path_exists_same_node() {
+        let projection = create_linear_graph();
+        assert!(path_exists(&projection, "A", "A").unwrap());
+    }
+
+    #[test]
+    fn test_path_exists_disconnected() {
+        let projection = create_disconnected_graph();
+
+        assert!(path_exists(&projection, "A", "B").unwrap());
+        assert!(!path_exists(&projection, "A", "D").unwrap());
+    }
+
+    #[test]
+    fn test_path_exists_node_not_found() {
+        let projection = create_linear_graph();
+
+        assert!(path_exists(&projection, "X", "A").is_err());
+        assert!(path_exists(&projection, "A", "X").is_err());
+    }
+
+    // ========== Reachable Nodes Tests ==========
+
+    #[test]
+    fn test_reachable_nodes_linear() {
+        let projection = create_linear_graph();
+        let reachable = reachable_nodes(&projection, "A").unwrap();
+
+        assert_eq!(reachable.len(), 3);
+        assert!(reachable.contains("A"));
+        assert!(reachable.contains("B"));
+        assert!(reachable.contains("C"));
+    }
+
+    #[test]
+    fn test_reachable_nodes_from_middle() {
+        let projection = create_linear_graph();
+        let reachable = reachable_nodes(&projection, "B").unwrap();
+
+        assert_eq!(reachable.len(), 2);
+        assert!(reachable.contains("B"));
+        assert!(reachable.contains("C"));
+        assert!(!reachable.contains("A"));
+    }
+
+    #[test]
+    fn test_reachable_nodes_leaf() {
+        let projection = create_linear_graph();
+        let reachable = reachable_nodes(&projection, "C").unwrap();
+
+        assert_eq!(reachable.len(), 1);
+        assert!(reachable.contains("C"));
+    }
+
+    #[test]
+    fn test_reachable_nodes_not_found() {
+        let projection = create_linear_graph();
+        assert!(reachable_nodes(&projection, "X").is_err());
+    }
+
+    // ========== Distances From Tests ==========
+
+    #[test]
+    fn test_distances_from_linear() {
+        let projection = create_linear_graph();
+        let distances = distances_from(&projection, "A").unwrap();
+
+        assert_eq!(*distances.get("A").unwrap(), 0);
+        assert_eq!(*distances.get("B").unwrap(), 1);
+        assert_eq!(*distances.get("C").unwrap(), 2);
+    }
+
+    #[test]
+    fn test_distances_from_branching() {
+        let projection = create_branching_graph();
+        let distances = distances_from(&projection, "A").unwrap();
+
+        assert_eq!(*distances.get("A").unwrap(), 0);
+        assert_eq!(*distances.get("B").unwrap(), 1);
+        assert_eq!(*distances.get("C").unwrap(), 1);
+        assert_eq!(*distances.get("D").unwrap(), 2);
+    }
+
+    #[test]
+    fn test_distances_from_not_found() {
+        let projection = create_linear_graph();
+        assert!(distances_from(&projection, "X").is_err());
+    }
+
+    // ========== Eccentricity Tests ==========
+
+    #[test]
+    fn test_eccentricity_linear() {
+        let projection = create_linear_graph();
+
+        assert_eq!(eccentricity(&projection, "A").unwrap(), 2);
+        assert_eq!(eccentricity(&projection, "B").unwrap(), 1);
+        assert_eq!(eccentricity(&projection, "C").unwrap(), 0);
+    }
+
+    #[test]
+    fn test_eccentricity_branching() {
+        let projection = create_branching_graph();
+
+        assert_eq!(eccentricity(&projection, "A").unwrap(), 2);
+    }
+
+    #[test]
+    fn test_eccentricity_not_found() {
+        let projection = create_linear_graph();
+        assert!(eccentricity(&projection, "X").is_err());
+    }
+
+    // ========== Diameter Tests ==========
+
+    #[test]
+    fn test_diameter_linear() {
+        let projection = create_linear_graph();
+        assert_eq!(diameter(&projection).unwrap(), 2);
+    }
+
+    #[test]
+    fn test_diameter_branching() {
+        let projection = create_branching_graph();
+        assert_eq!(diameter(&projection).unwrap(), 2);
+    }
+
+    #[test]
+    fn test_diameter_empty() {
+        let projection = create_empty_projection();
+        assert_eq!(diameter(&projection).unwrap(), 0);
+    }
+
+    #[test]
+    fn test_diameter_single_node() {
+        let mut projection = create_empty_projection();
+        let node = WorkflowNode::new("A", WorkflowNodeType::Start);
+        projection.nodes.insert("A".to_string(), node);
+        projection.adjacency.insert("A".to_string(), vec![]);
+
+        assert_eq!(diameter(&projection).unwrap(), 0);
+    }
+
+    // ========== DFS Iterative Tests ==========
+
+    #[test]
+    fn test_dfs_iterative_linear() {
+        let projection = create_linear_graph();
+        let result = dfs_iterative(&projection, "A").unwrap();
+
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0], "A");
+        assert!(result.contains(&"B".to_string()));
+        assert!(result.contains(&"C".to_string()));
+    }
+
+    #[test]
+    fn test_dfs_iterative_branching() {
+        let projection = create_branching_graph();
+        let result = dfs_iterative(&projection, "A").unwrap();
+
+        assert_eq!(result.len(), 4);
+        assert_eq!(result[0], "A");
+    }
+
+    #[test]
+    fn test_dfs_iterative_not_found() {
+        let projection = create_linear_graph();
+        assert!(dfs_iterative(&projection, "X").is_err());
+    }
+
+    #[test]
+    fn test_dfs_iterative_matches_recursive() {
+        let projection = create_linear_graph();
+
+        let iterative = dfs_iterative(&projection, "A").unwrap();
+        let recursive = dfs(&projection, "A").unwrap();
+
+        // Both should visit same nodes (order might differ slightly)
+        assert_eq!(iterative.len(), recursive.len());
+
+        let iter_set: HashSet<_> = iterative.into_iter().collect();
+        let rec_set: HashSet<_> = recursive.into_iter().collect();
+
+        assert_eq!(iter_set, rec_set);
+    }
+
+    // ========== Count Paths Tests ==========
+
+    #[test]
+    fn test_count_paths_linear() {
+        let projection = create_linear_graph();
+        assert_eq!(count_paths(&projection, "A", "C").unwrap(), 1);
+    }
+
+    #[test]
+    fn test_count_paths_diamond() {
+        let projection = create_branching_graph();
+        // A -> B -> D and A -> C -> D = 2 paths
+        assert_eq!(count_paths(&projection, "A", "D").unwrap(), 2);
+    }
+
+    #[test]
+    fn test_count_paths_same_node() {
+        let projection = create_linear_graph();
+        assert_eq!(count_paths(&projection, "A", "A").unwrap(), 1);
+    }
+
+    #[test]
+    fn test_count_paths_no_path() {
+        let projection = create_linear_graph();
+        assert_eq!(count_paths(&projection, "C", "A").unwrap(), 0);
+    }
+
+    #[test]
+    fn test_count_paths_not_found() {
+        let projection = create_linear_graph();
+
+        assert!(count_paths(&projection, "X", "A").is_err());
+        assert!(count_paths(&projection, "A", "X").is_err());
+    }
+
+    #[test]
+    fn test_count_paths_complex() {
+        // Create a graph with multiple paths:
+        //     B
+        //   / | \
+        // A   |   D
+        //   \ | /
+        //     C
+        let mut projection = create_empty_projection();
+
+        for id in ["A", "B", "C", "D"] {
+            let node = WorkflowNode::new(id, WorkflowNodeType::Start);
+            projection.nodes.insert(id.to_string(), node);
+        }
+
+        projection.adjacency.insert("A".to_string(), vec!["B".to_string(), "C".to_string()]);
+        projection.adjacency.insert("B".to_string(), vec!["C".to_string(), "D".to_string()]);
+        projection.adjacency.insert("C".to_string(), vec!["D".to_string()]);
+        projection.adjacency.insert("D".to_string(), vec![]);
+
+        // Paths from A to D:
+        // A -> B -> D
+        // A -> B -> C -> D
+        // A -> C -> D
+        assert_eq!(count_paths(&projection, "A", "D").unwrap(), 3);
+    }
+
+    // ========== Level Order Result Tests ==========
+
+    #[test]
+    fn test_level_order_result_fields() {
+        let result = LevelOrderResult {
+            levels: vec![
+                vec!["A".to_string()],
+                vec!["B".to_string(), "C".to_string()],
+            ],
+            total_nodes: 3,
+            max_depth: 1,
+        };
+
+        assert_eq!(result.levels.len(), 2);
+        assert_eq!(result.total_nodes, 3);
+        assert_eq!(result.max_depth, 1);
+    }
+
+    // ========== Connected Components Result Tests ==========
+
+    #[test]
+    fn test_connected_components_result_fields() {
+        let result = ConnectedComponentsResult {
+            components: vec![
+                vec!["A".to_string(), "B".to_string()],
+                vec!["C".to_string()],
+            ],
+            count: 2,
+            largest_size: 2,
+        };
+
+        assert_eq!(result.components.len(), 2);
+        assert_eq!(result.count, 2);
+        assert_eq!(result.largest_size, 2);
     }
 }

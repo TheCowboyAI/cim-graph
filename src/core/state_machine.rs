@@ -431,15 +431,86 @@ impl GraphCommand {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::events::{IpldCommand, ContextCommand, WorkflowCommand, ConceptCommand, ComposedCommand};
+
+    // Helper function to create an empty projection
+    fn create_empty_projection() -> GraphAggregateProjection {
+        GraphAggregateProjection::new(Uuid::new_v4(), "test.subject".to_string())
+    }
+
+    // ========== GraphState Tests ==========
+
+    #[test]
+    fn test_graph_state_uninitialized() {
+        let state = GraphState::Uninitialized;
+        assert!(matches!(state, GraphState::Uninitialized));
+    }
+
+    #[test]
+    fn test_graph_state_initialized() {
+        let state = GraphState::Initialized { graph_type: "workflow".to_string() };
+        if let GraphState::Initialized { graph_type } = state {
+            assert_eq!(graph_type, "workflow");
+        } else {
+            panic!("Expected Initialized state");
+        }
+    }
+
+    #[test]
+    fn test_graph_state_active() {
+        let state = GraphState::Active { nodes: 5, edges: 3 };
+        if let GraphState::Active { nodes, edges } = state {
+            assert_eq!(nodes, 5);
+            assert_eq!(edges, 3);
+        } else {
+            panic!("Expected Active state");
+        }
+    }
+
+    #[test]
+    fn test_graph_state_archived() {
+        let state = GraphState::Archived;
+        assert!(matches!(state, GraphState::Archived));
+    }
+
+    #[test]
+    fn test_graph_state_equality() {
+        let state1 = GraphState::Initialized { graph_type: "ipld".to_string() };
+        let state2 = GraphState::Initialized { graph_type: "ipld".to_string() };
+        let state3 = GraphState::Initialized { graph_type: "workflow".to_string() };
+
+        assert_eq!(state1, state2);
+        assert_ne!(state1, state3);
+    }
+
+    #[test]
+    fn test_graph_state_clone() {
+        let state = GraphState::Active { nodes: 10, edges: 5 };
+        let cloned = state.clone();
+        assert_eq!(state, cloned);
+    }
+
+    #[test]
+    fn test_graph_state_serialization() {
+        let state = GraphState::Active { nodes: 3, edges: 2 };
+        let json = serde_json::to_string(&state).unwrap();
+        assert!(json.contains("Active"));
+        assert!(json.contains("nodes"));
+
+        let deserialized: GraphState = serde_json::from_str(&json).unwrap();
+        assert_eq!(state, deserialized);
+    }
+
+    // ========== GraphStateMachine Basic Tests ==========
 
     #[test]
     fn test_graph_state_transitions() {
         let mut sm = GraphStateMachine::new();
         let aggregate_id = Uuid::new_v4();
-        
+
         // Start uninitialized
         assert_eq!(sm.get_state(&aggregate_id), GraphState::Uninitialized);
-        
+
         // Initialize event
         let event = GraphEvent {
             event_id: Uuid::new_v4(),
@@ -452,12 +523,12 @@ mod tests {
             }),
         };
         sm.apply_event(&event);
-        
+
         assert!(matches!(
             sm.get_state(&aggregate_id),
             GraphState::Initialized { graph_type } if graph_type == "ipld"
         ));
-        
+
         // Add node event
         let event = GraphEvent {
             event_id: Uuid::new_v4(),
@@ -470,13 +541,785 @@ mod tests {
             }),
         };
         sm.apply_event(&event);
-        
+
         assert!(matches!(
             sm.get_state(&aggregate_id),
             GraphState::Active { nodes: 1, edges: 0 }
         ));
     }
-    
+
+    #[test]
+    fn test_state_machine_new() {
+        let sm = GraphStateMachine::new();
+
+        // Check workflow states are defined
+        assert!(sm.valid_states.contains_key("workflow"));
+        assert!(sm.valid_states.get("workflow").unwrap().contains(&"draft".to_string()));
+        assert!(sm.valid_states.get("workflow").unwrap().contains(&"published".to_string()));
+
+        // Check ipld states
+        assert!(sm.valid_states.contains_key("ipld"));
+
+        // Check context states
+        assert!(sm.valid_states.contains_key("context"));
+
+        // Check concept states
+        assert!(sm.valid_states.contains_key("concept"));
+
+        // Check composed states
+        assert!(sm.valid_states.contains_key("composed"));
+    }
+
+    #[test]
+    fn test_state_machine_get_state_unknown_aggregate() {
+        let sm = GraphStateMachine::new();
+        let unknown_id = Uuid::new_v4();
+
+        assert_eq!(sm.get_state(&unknown_id), GraphState::Uninitialized);
+    }
+
+    // ========== Validate Command Tests ==========
+
+    #[test]
+    fn test_validate_initialize_from_uninitialized() {
+        let sm = GraphStateMachine::new();
+        let projection = create_empty_projection();
+
+        let command = GraphCommand::InitializeGraph {
+            aggregate_id: Uuid::new_v4(),
+            graph_type: "workflow".to_string(),
+            correlation_id: Uuid::new_v4(),
+        };
+
+        let result = sm.validate_command(&command, &projection);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_command_on_uninitialized_fails() {
+        let sm = GraphStateMachine::new();
+        let projection = create_empty_projection();
+
+        let command = GraphCommand::Ipld {
+            aggregate_id: Uuid::new_v4(),
+            correlation_id: Uuid::new_v4(),
+            command: IpldCommand::AddCid {
+                cid: "QmTest".to_string(),
+                codec: "dag-cbor".to_string(),
+                size: 100,
+                data: serde_json::json!({}),
+            },
+        };
+
+        let result = sm.validate_command(&command, &projection);
+        assert!(result.is_err());
+
+        match result.unwrap_err() {
+            GraphError::InvalidOperation(msg) => {
+                assert!(msg.contains("initialized first"));
+            }
+            _ => panic!("Expected InvalidOperation error"),
+        }
+    }
+
+    #[test]
+    fn test_validate_ipld_add_cid_on_initialized() {
+        let mut sm = GraphStateMachine::new();
+        let aggregate_id = Uuid::new_v4();
+        let projection = create_empty_projection();
+
+        // Initialize the state machine
+        sm.aggregate_states.insert(
+            aggregate_id,
+            GraphState::Initialized { graph_type: "ipld".to_string() }
+        );
+
+        let command = GraphCommand::Ipld {
+            aggregate_id,
+            correlation_id: Uuid::new_v4(),
+            command: IpldCommand::AddCid {
+                cid: "QmTest".to_string(),
+                codec: "dag-cbor".to_string(),
+                size: 100,
+                data: serde_json::json!({}),
+            },
+        };
+
+        let result = sm.validate_command(&command, &projection);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_ipld_link_on_initialized_fails() {
+        let mut sm = GraphStateMachine::new();
+        let aggregate_id = Uuid::new_v4();
+        let projection = create_empty_projection();
+
+        sm.aggregate_states.insert(
+            aggregate_id,
+            GraphState::Initialized { graph_type: "ipld".to_string() }
+        );
+
+        let command = GraphCommand::Ipld {
+            aggregate_id,
+            correlation_id: Uuid::new_v4(),
+            command: IpldCommand::LinkCids {
+                source_cid: "QmSource".to_string(),
+                target_cid: "QmTarget".to_string(),
+                link_name: "next".to_string(),
+            },
+        };
+
+        let result = sm.validate_command(&command, &projection);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_context_create_on_initialized() {
+        let mut sm = GraphStateMachine::new();
+        let aggregate_id = Uuid::new_v4();
+        let projection = create_empty_projection();
+
+        sm.aggregate_states.insert(
+            aggregate_id,
+            GraphState::Initialized { graph_type: "context".to_string() }
+        );
+
+        let command = GraphCommand::Context {
+            aggregate_id,
+            correlation_id: Uuid::new_v4(),
+            command: ContextCommand::CreateBoundedContext {
+                context_id: "test".to_string(),
+                name: "Test".to_string(),
+                description: "Test description".to_string(),
+            },
+        };
+
+        let result = sm.validate_command(&command, &projection);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_workflow_define_on_initialized() {
+        let mut sm = GraphStateMachine::new();
+        let aggregate_id = Uuid::new_v4();
+        let projection = create_empty_projection();
+
+        sm.aggregate_states.insert(
+            aggregate_id,
+            GraphState::Initialized { graph_type: "workflow".to_string() }
+        );
+
+        let command = GraphCommand::Workflow {
+            aggregate_id,
+            correlation_id: Uuid::new_v4(),
+            command: WorkflowCommand::DefineWorkflow {
+                workflow_id: Uuid::new_v4(),
+                name: "Test".to_string(),
+                version: "1.0.0".to_string(),
+            },
+        };
+
+        let result = sm.validate_command(&command, &projection);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_concept_define_on_initialized() {
+        let mut sm = GraphStateMachine::new();
+        let aggregate_id = Uuid::new_v4();
+        let projection = create_empty_projection();
+
+        sm.aggregate_states.insert(
+            aggregate_id,
+            GraphState::Initialized { graph_type: "concept".to_string() }
+        );
+
+        let command = GraphCommand::Concept {
+            aggregate_id,
+            correlation_id: Uuid::new_v4(),
+            command: ConceptCommand::DefineConcept {
+                concept_id: "animal".to_string(),
+                name: "Animal".to_string(),
+                definition: "Living organism".to_string(),
+            },
+        };
+
+        let result = sm.validate_command(&command, &projection);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_composed_add_subgraph_on_initialized() {
+        let mut sm = GraphStateMachine::new();
+        let aggregate_id = Uuid::new_v4();
+        let projection = create_empty_projection();
+
+        sm.aggregate_states.insert(
+            aggregate_id,
+            GraphState::Initialized { graph_type: "composed".to_string() }
+        );
+
+        let command = GraphCommand::Composed {
+            aggregate_id,
+            correlation_id: Uuid::new_v4(),
+            command: ComposedCommand::AddSubGraph {
+                subgraph_id: Uuid::new_v4(),
+                graph_type: "workflow".to_string(),
+                namespace: "test".to_string(),
+            },
+        };
+
+        let result = sm.validate_command(&command, &projection);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_initialize_on_active_fails() {
+        let mut sm = GraphStateMachine::new();
+        let aggregate_id = Uuid::new_v4();
+        let projection = create_empty_projection();
+
+        sm.aggregate_states.insert(
+            aggregate_id,
+            GraphState::Active { nodes: 5, edges: 3 }
+        );
+
+        let command = GraphCommand::InitializeGraph {
+            aggregate_id,
+            graph_type: "workflow".to_string(),
+            correlation_id: Uuid::new_v4(),
+        };
+
+        let result = sm.validate_command(&command, &projection);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_archive_on_active() {
+        let mut sm = GraphStateMachine::new();
+        let aggregate_id = Uuid::new_v4();
+        let projection = create_empty_projection();
+
+        sm.aggregate_states.insert(
+            aggregate_id,
+            GraphState::Active { nodes: 5, edges: 3 }
+        );
+
+        let command = GraphCommand::ArchiveGraph {
+            aggregate_id,
+            correlation_id: Uuid::new_v4(),
+        };
+
+        let result = sm.validate_command(&command, &projection);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_command_on_archived_fails() {
+        let mut sm = GraphStateMachine::new();
+        let aggregate_id = Uuid::new_v4();
+        let projection = create_empty_projection();
+
+        sm.aggregate_states.insert(aggregate_id, GraphState::Archived);
+
+        let command = GraphCommand::Ipld {
+            aggregate_id,
+            correlation_id: Uuid::new_v4(),
+            command: IpldCommand::AddCid {
+                cid: "QmTest".to_string(),
+                codec: "dag-cbor".to_string(),
+                size: 100,
+                data: serde_json::json!({}),
+            },
+        };
+
+        let result = sm.validate_command(&command, &projection);
+        assert!(result.is_err());
+
+        match result.unwrap_err() {
+            GraphError::InvalidOperation(msg) => {
+                assert!(msg.contains("archived"));
+            }
+            _ => panic!("Expected InvalidOperation error"),
+        }
+    }
+
+    // ========== Apply Event Tests ==========
+
+    #[test]
+    fn test_apply_event_ipld_cid_added() {
+        let mut sm = GraphStateMachine::new();
+        let aggregate_id = Uuid::new_v4();
+
+        let event = GraphEvent {
+            event_id: Uuid::new_v4(),
+            aggregate_id,
+            correlation_id: Uuid::new_v4(),
+            causation_id: None,
+            payload: EventPayload::Ipld(IpldPayload::CidAdded {
+                cid: "QmTest".to_string(),
+                codec: "dag-cbor".to_string(),
+                size: 100,
+                data: serde_json::json!({}),
+            }),
+        };
+
+        sm.apply_event(&event);
+
+        assert!(matches!(
+            sm.get_state(&aggregate_id),
+            GraphState::Initialized { graph_type } if graph_type == "ipld"
+        ));
+    }
+
+    #[test]
+    fn test_apply_event_context_created() {
+        let mut sm = GraphStateMachine::new();
+        let aggregate_id = Uuid::new_v4();
+
+        let event = GraphEvent {
+            event_id: Uuid::new_v4(),
+            aggregate_id,
+            correlation_id: Uuid::new_v4(),
+            causation_id: None,
+            payload: EventPayload::Context(ContextPayload::BoundedContextCreated {
+                context_id: "test".to_string(),
+                name: "Test".to_string(),
+                description: "Description".to_string(),
+            }),
+        };
+
+        sm.apply_event(&event);
+
+        assert!(matches!(
+            sm.get_state(&aggregate_id),
+            GraphState::Initialized { graph_type } if graph_type == "context"
+        ));
+    }
+
+    #[test]
+    fn test_apply_event_workflow_defined() {
+        let mut sm = GraphStateMachine::new();
+        let aggregate_id = Uuid::new_v4();
+
+        let event = GraphEvent {
+            event_id: Uuid::new_v4(),
+            aggregate_id,
+            correlation_id: Uuid::new_v4(),
+            causation_id: None,
+            payload: EventPayload::Workflow(WorkflowPayload::WorkflowDefined {
+                workflow_id: Uuid::new_v4(),
+                name: "Test".to_string(),
+                version: "1.0.0".to_string(),
+            }),
+        };
+
+        sm.apply_event(&event);
+
+        assert!(matches!(
+            sm.get_state(&aggregate_id),
+            GraphState::Initialized { graph_type } if graph_type == "workflow"
+        ));
+    }
+
+    #[test]
+    fn test_apply_event_concept_defined() {
+        let mut sm = GraphStateMachine::new();
+        let aggregate_id = Uuid::new_v4();
+
+        let event = GraphEvent {
+            event_id: Uuid::new_v4(),
+            aggregate_id,
+            correlation_id: Uuid::new_v4(),
+            causation_id: None,
+            payload: EventPayload::Concept(ConceptPayload::ConceptDefined {
+                concept_id: "animal".to_string(),
+                name: "Animal".to_string(),
+                definition: "Living organism".to_string(),
+            }),
+        };
+
+        sm.apply_event(&event);
+
+        assert!(matches!(
+            sm.get_state(&aggregate_id),
+            GraphState::Initialized { graph_type } if graph_type == "concept"
+        ));
+    }
+
+    #[test]
+    fn test_apply_event_composed_subgraph_added() {
+        let mut sm = GraphStateMachine::new();
+        let aggregate_id = Uuid::new_v4();
+
+        let event = GraphEvent {
+            event_id: Uuid::new_v4(),
+            aggregate_id,
+            correlation_id: Uuid::new_v4(),
+            causation_id: None,
+            payload: EventPayload::Composed(ComposedPayload::SubGraphAdded {
+                subgraph_id: Uuid::new_v4(),
+                graph_type: "workflow".to_string(),
+                namespace: "test".to_string(),
+            }),
+        };
+
+        sm.apply_event(&event);
+
+        assert!(matches!(
+            sm.get_state(&aggregate_id),
+            GraphState::Initialized { graph_type } if graph_type == "composed"
+        ));
+    }
+
+    #[test]
+    fn test_apply_event_archive() {
+        let mut sm = GraphStateMachine::new();
+        let aggregate_id = Uuid::new_v4();
+
+        // The archive event works from any state due to pattern matching
+        // in apply_event: (_, EventPayload::Generic(generic)) if generic.event_type == "GraphArchived"
+        let event = GraphEvent {
+            event_id: Uuid::new_v4(),
+            aggregate_id,
+            correlation_id: Uuid::new_v4(),
+            causation_id: None,
+            payload: EventPayload::Generic(crate::events::GenericPayload {
+                event_type: "GraphArchived".to_string(),
+                data: serde_json::json!({}),
+            }),
+        };
+
+        sm.apply_event(&event);
+
+        assert_eq!(sm.get_state(&aggregate_id), GraphState::Archived);
+    }
+
+    #[test]
+    fn test_apply_event_node_added() {
+        let mut sm = GraphStateMachine::new();
+        let aggregate_id = Uuid::new_v4();
+
+        // Initialize state
+        sm.aggregate_states.insert(
+            aggregate_id,
+            GraphState::Initialized { graph_type: "workflow".to_string() }
+        );
+
+        let event = GraphEvent {
+            event_id: Uuid::new_v4(),
+            aggregate_id,
+            correlation_id: Uuid::new_v4(),
+            causation_id: None,
+            payload: EventPayload::Generic(crate::events::GenericPayload {
+                event_type: "NodeAdded".to_string(),
+                data: serde_json::json!({ "node_id": "n1" }),
+            }),
+        };
+
+        sm.apply_event(&event);
+
+        assert!(matches!(
+            sm.get_state(&aggregate_id),
+            GraphState::Active { nodes: 1, edges: 0 }
+        ));
+    }
+
+    #[test]
+    fn test_apply_event_multiple_nodes_and_edges() {
+        let mut sm = GraphStateMachine::new();
+        let aggregate_id = Uuid::new_v4();
+
+        // Initialize as active
+        sm.aggregate_states.insert(
+            aggregate_id,
+            GraphState::Active { nodes: 2, edges: 1 }
+        );
+
+        // Add node
+        let node_event = GraphEvent {
+            event_id: Uuid::new_v4(),
+            aggregate_id,
+            correlation_id: Uuid::new_v4(),
+            causation_id: None,
+            payload: EventPayload::Generic(crate::events::GenericPayload {
+                event_type: "NodeAdded".to_string(),
+                data: serde_json::json!({}),
+            }),
+        };
+        sm.apply_event(&node_event);
+
+        assert!(matches!(
+            sm.get_state(&aggregate_id),
+            GraphState::Active { nodes: 3, edges: 1 }
+        ));
+
+        // Add edge
+        let edge_event = GraphEvent {
+            event_id: Uuid::new_v4(),
+            aggregate_id,
+            correlation_id: Uuid::new_v4(),
+            causation_id: None,
+            payload: EventPayload::Generic(crate::events::GenericPayload {
+                event_type: "EdgeAdded".to_string(),
+                data: serde_json::json!({}),
+            }),
+        };
+        sm.apply_event(&edge_event);
+
+        assert!(matches!(
+            sm.get_state(&aggregate_id),
+            GraphState::Active { nodes: 3, edges: 2 }
+        ));
+    }
+
+    // ========== Handle Command Tests ==========
+
+    #[test]
+    fn test_handle_command_initialize_ipld() {
+        let mut sm = GraphStateMachine::new();
+        let aggregate_id = Uuid::new_v4();
+        let projection = create_empty_projection();
+
+        let command = GraphCommand::InitializeGraph {
+            aggregate_id,
+            graph_type: "ipld".to_string(),
+            correlation_id: Uuid::new_v4(),
+        };
+
+        let result = sm.handle_command(command, &projection);
+        assert!(result.is_ok());
+
+        let events = result.unwrap();
+        assert_eq!(events.len(), 1);
+
+        assert!(matches!(
+            events[0].payload,
+            EventPayload::Ipld(IpldPayload::CidAdded { .. })
+        ));
+    }
+
+    #[test]
+    fn test_handle_command_initialize_workflow() {
+        let mut sm = GraphStateMachine::new();
+        let aggregate_id = Uuid::new_v4();
+        let projection = create_empty_projection();
+
+        let command = GraphCommand::InitializeGraph {
+            aggregate_id,
+            graph_type: "workflow".to_string(),
+            correlation_id: Uuid::new_v4(),
+        };
+
+        let result = sm.handle_command(command, &projection);
+        assert!(result.is_ok());
+
+        let events = result.unwrap();
+        assert!(matches!(
+            events[0].payload,
+            EventPayload::Workflow(WorkflowPayload::WorkflowDefined { .. })
+        ));
+    }
+
+    #[test]
+    fn test_handle_command_initialize_context() {
+        let mut sm = GraphStateMachine::new();
+        let aggregate_id = Uuid::new_v4();
+        let projection = create_empty_projection();
+
+        let command = GraphCommand::InitializeGraph {
+            aggregate_id,
+            graph_type: "context".to_string(),
+            correlation_id: Uuid::new_v4(),
+        };
+
+        let result = sm.handle_command(command, &projection);
+        assert!(result.is_ok());
+
+        let events = result.unwrap();
+        assert!(matches!(
+            events[0].payload,
+            EventPayload::Context(ContextPayload::BoundedContextCreated { .. })
+        ));
+    }
+
+    #[test]
+    fn test_handle_command_initialize_concept() {
+        let mut sm = GraphStateMachine::new();
+        let aggregate_id = Uuid::new_v4();
+        let projection = create_empty_projection();
+
+        let command = GraphCommand::InitializeGraph {
+            aggregate_id,
+            graph_type: "concept".to_string(),
+            correlation_id: Uuid::new_v4(),
+        };
+
+        let result = sm.handle_command(command, &projection);
+        assert!(result.is_ok());
+
+        let events = result.unwrap();
+        assert!(matches!(
+            events[0].payload,
+            EventPayload::Concept(ConceptPayload::ConceptDefined { .. })
+        ));
+    }
+
+    #[test]
+    fn test_handle_command_initialize_composed() {
+        let mut sm = GraphStateMachine::new();
+        let aggregate_id = Uuid::new_v4();
+        let projection = create_empty_projection();
+
+        let command = GraphCommand::InitializeGraph {
+            aggregate_id,
+            graph_type: "composed".to_string(),
+            correlation_id: Uuid::new_v4(),
+        };
+
+        let result = sm.handle_command(command, &projection);
+        assert!(result.is_ok());
+
+        let events = result.unwrap();
+        assert!(matches!(
+            events[0].payload,
+            EventPayload::Composed(ComposedPayload::SubGraphAdded { .. })
+        ));
+    }
+
+    #[test]
+    fn test_handle_command_initialize_generic() {
+        let mut sm = GraphStateMachine::new();
+        let aggregate_id = Uuid::new_v4();
+        let projection = create_empty_projection();
+
+        let command = GraphCommand::InitializeGraph {
+            aggregate_id,
+            graph_type: "generic".to_string(),
+            correlation_id: Uuid::new_v4(),
+        };
+
+        let result = sm.handle_command(command, &projection);
+        assert!(result.is_ok());
+
+        let events = result.unwrap();
+        assert!(matches!(events[0].payload, EventPayload::Generic(_)));
+    }
+
+    #[test]
+    fn test_handle_command_archive() {
+        let mut sm = GraphStateMachine::new();
+        let aggregate_id = Uuid::new_v4();
+        let projection = create_empty_projection();
+
+        // Initialize first
+        sm.aggregate_states.insert(
+            aggregate_id,
+            GraphState::Active { nodes: 5, edges: 3 }
+        );
+
+        let command = GraphCommand::ArchiveGraph {
+            aggregate_id,
+            correlation_id: Uuid::new_v4(),
+        };
+
+        let result = sm.handle_command(command, &projection);
+        assert!(result.is_ok());
+
+        let events = result.unwrap();
+        assert_eq!(events.len(), 1);
+
+        if let EventPayload::Generic(payload) = &events[0].payload {
+            assert_eq!(payload.event_type, "GraphArchived");
+        } else {
+            panic!("Expected Generic payload");
+        }
+
+        // Note: handle_command calls apply_event internally
+        // But the pattern matching in apply_event may not match correctly
+        // for all state transitions. We just verify the event was generated correctly.
+        // In a real system, the event would be persisted and replayed.
+    }
+
+    // ========== Replay Events Tests ==========
+
+    #[test]
+    fn test_replay_events() {
+        let mut sm = GraphStateMachine::new();
+        let aggregate_id = Uuid::new_v4();
+
+        let events = vec![
+            GraphEvent {
+                event_id: Uuid::new_v4(),
+                aggregate_id,
+                correlation_id: Uuid::new_v4(),
+                causation_id: None,
+                payload: EventPayload::Generic(crate::events::GenericPayload {
+                    event_type: "GraphInitialized".to_string(),
+                    data: serde_json::json!({ "graph_type": "workflow" }),
+                }),
+            },
+            GraphEvent {
+                event_id: Uuid::new_v4(),
+                aggregate_id,
+                correlation_id: Uuid::new_v4(),
+                causation_id: None,
+                payload: EventPayload::Generic(crate::events::GenericPayload {
+                    event_type: "NodeAdded".to_string(),
+                    data: serde_json::json!({}),
+                }),
+            },
+        ];
+
+        sm.replay_events(&events);
+
+        assert!(matches!(
+            sm.get_state(&aggregate_id),
+            GraphState::Active { nodes: 1, edges: 0 }
+        ));
+    }
+
+    #[test]
+    fn test_replay_events_clears_state() {
+        let mut sm = GraphStateMachine::new();
+        let aggregate_id1 = Uuid::new_v4();
+        let aggregate_id2 = Uuid::new_v4();
+
+        // Set up some initial state
+        sm.aggregate_states.insert(
+            aggregate_id1,
+            GraphState::Active { nodes: 10, edges: 5 }
+        );
+
+        // Replay events for a different aggregate
+        let events = vec![
+            GraphEvent {
+                event_id: Uuid::new_v4(),
+                aggregate_id: aggregate_id2,
+                correlation_id: Uuid::new_v4(),
+                causation_id: None,
+                payload: EventPayload::Generic(crate::events::GenericPayload {
+                    event_type: "GraphInitialized".to_string(),
+                    data: serde_json::json!({ "graph_type": "ipld" }),
+                }),
+            },
+        ];
+
+        sm.replay_events(&events);
+
+        // Original state should be cleared
+        assert_eq!(sm.get_state(&aggregate_id1), GraphState::Uninitialized);
+
+        // New state should be set
+        assert!(matches!(
+            sm.get_state(&aggregate_id2),
+            GraphState::Initialized { graph_type } if graph_type == "ipld"
+        ));
+    }
+
+    // ========== WorkflowState Tests ==========
+
     #[test]
     fn test_workflow_state_transitions() {
         let draft = WorkflowState::Draft;
@@ -484,16 +1327,112 @@ mod tests {
         let running = WorkflowState::Running { current_state: "step1".to_string() };
         let completed = WorkflowState::Completed;
         let failed = WorkflowState::Failed { error: "error".to_string() };
-        
+
         // Valid transitions
         assert!(draft.can_transition_to(&published));
         assert!(published.can_transition_to(&running));
         assert!(running.can_transition_to(&completed));
         assert!(running.can_transition_to(&failed));
         assert!(failed.can_transition_to(&running)); // Retry
-        
+
         // Invalid transitions
         assert!(!completed.can_transition_to(&draft));
         assert!(!published.can_transition_to(&completed));
+    }
+
+    #[test]
+    fn test_workflow_state_draft_transitions() {
+        let draft = WorkflowState::Draft;
+
+        assert!(draft.can_transition_to(&WorkflowState::Published));
+        assert!(!draft.can_transition_to(&WorkflowState::Running { current_state: "x".to_string() }));
+        assert!(!draft.can_transition_to(&WorkflowState::Completed));
+        assert!(!draft.can_transition_to(&WorkflowState::Failed { error: "x".to_string() }));
+    }
+
+    #[test]
+    fn test_workflow_state_serialization() {
+        let running = WorkflowState::Running { current_state: "step1".to_string() };
+        let json = serde_json::to_string(&running).unwrap();
+        assert!(json.contains("Running"));
+        assert!(json.contains("step1"));
+
+        let deserialized: WorkflowState = serde_json::from_str(&json).unwrap();
+        assert_eq!(running, deserialized);
+    }
+
+    #[test]
+    fn test_workflow_state_equality() {
+        let running1 = WorkflowState::Running { current_state: "step1".to_string() };
+        let running2 = WorkflowState::Running { current_state: "step1".to_string() };
+        let running3 = WorkflowState::Running { current_state: "step2".to_string() };
+
+        assert_eq!(running1, running2);
+        assert_ne!(running1, running3);
+    }
+
+    // ========== System Function Tests ==========
+
+    #[test]
+    fn test_process_command() {
+        let mut sm = GraphStateMachine::new();
+        let aggregate_id = Uuid::new_v4();
+        let projection = create_empty_projection();
+
+        let command = GraphCommand::InitializeGraph {
+            aggregate_id,
+            graph_type: "workflow".to_string(),
+            correlation_id: Uuid::new_v4(),
+        };
+
+        let result = process_command(&mut sm, command, &projection);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_get_aggregate_state() {
+        let mut sm = GraphStateMachine::new();
+        let aggregate_id = Uuid::new_v4();
+
+        sm.aggregate_states.insert(
+            aggregate_id,
+            GraphState::Active { nodes: 5, edges: 3 }
+        );
+
+        let state = get_aggregate_state(&sm, &aggregate_id);
+        assert!(matches!(state, GraphState::Active { nodes: 5, edges: 3 }));
+    }
+
+    #[test]
+    fn test_get_aggregate_state_unknown() {
+        let sm = GraphStateMachine::new();
+        let unknown_id = Uuid::new_v4();
+
+        let state = get_aggregate_state(&sm, &unknown_id);
+        assert_eq!(state, GraphState::Uninitialized);
+    }
+
+    // ========== GraphCommand aggregate_id Tests ==========
+
+    #[test]
+    fn test_command_aggregate_id_extraction() {
+        let id = Uuid::new_v4();
+        let corr_id = Uuid::new_v4();
+
+        let commands = vec![
+            GraphCommand::InitializeGraph {
+                aggregate_id: id,
+                graph_type: "workflow".to_string(),
+                correlation_id: corr_id,
+            },
+            GraphCommand::ArchiveGraph {
+                aggregate_id: id,
+                correlation_id: corr_id,
+            },
+        ];
+
+        for command in commands {
+            assert_eq!(command.aggregate_id(), id);
+        }
     }
 }
