@@ -532,7 +532,7 @@ mod tests {
     fn test_composed_edge_creation() {
         let source_graph = Uuid::new_v4();
         let target_graph = Uuid::new_v4();
-        
+
         let cross_link = ComposedEdge::cross_graph_link(
             "link1",
             "node1",
@@ -550,5 +550,690 @@ mod tests {
             data_flow.edge_type,
             ComposedEdgeType::DataFlow { flow_type } if flow_type == "json"
         ));
+    }
+
+    // ========== GraphDomain Tests ==========
+
+    #[test]
+    fn test_graph_domain_variants() {
+        let id = Uuid::new_v4();
+
+        let ipld = GraphDomain::Ipld { graph_id: id };
+        let context = GraphDomain::Context { graph_id: id };
+        let workflow = GraphDomain::Workflow { graph_id: id };
+        let concept = GraphDomain::Concept { graph_id: id };
+        let composed = GraphDomain::Composed { graph_id: id };
+
+        assert!(matches!(ipld, GraphDomain::Ipld { graph_id } if graph_id == id));
+        assert!(matches!(context, GraphDomain::Context { graph_id } if graph_id == id));
+        assert!(matches!(workflow, GraphDomain::Workflow { graph_id } if graph_id == id));
+        assert!(matches!(concept, GraphDomain::Concept { graph_id } if graph_id == id));
+        assert!(matches!(composed, GraphDomain::Composed { graph_id } if graph_id == id));
+    }
+
+    #[test]
+    fn test_graph_domain_equality() {
+        let id1 = Uuid::new_v4();
+        let id2 = Uuid::new_v4();
+
+        let d1 = GraphDomain::Ipld { graph_id: id1 };
+        let d2 = GraphDomain::Ipld { graph_id: id1 };
+        let d3 = GraphDomain::Ipld { graph_id: id2 };
+        let d4 = GraphDomain::Context { graph_id: id1 };
+
+        assert_eq!(d1, d2);
+        assert_ne!(d1, d3);
+        assert_ne!(d1, d4);
+    }
+
+    #[test]
+    fn test_graph_domain_hash() {
+        let id = Uuid::new_v4();
+        let domain = GraphDomain::Ipld { graph_id: id };
+
+        let mut set = HashSet::new();
+        set.insert(domain.clone());
+
+        assert!(set.contains(&domain));
+        assert_eq!(set.len(), 1);
+
+        // Adding same domain should not increase size
+        set.insert(domain);
+        assert_eq!(set.len(), 1);
+    }
+
+    // ========== ComposedNodeType Tests ==========
+
+    #[test]
+    fn test_composed_node_type_variants() {
+        let id = Uuid::new_v4();
+
+        let graph_ref = ComposedNodeType::GraphReference {
+            domain: GraphDomain::Ipld { graph_id: id }
+        };
+        let node_ref = ComposedNodeType::NodeReference {
+            graph_id: id,
+            node_id: "node1".to_string()
+        };
+        let junction = ComposedNodeType::Junction {
+            connected_graphs: vec![id]
+        };
+        let transform = ComposedNodeType::Transform {
+            operation: "filter".to_string()
+        };
+        let aggregate = ComposedNodeType::Aggregate {
+            aggregation_type: "sum".to_string()
+        };
+
+        assert!(matches!(graph_ref, ComposedNodeType::GraphReference { .. }));
+        assert!(matches!(node_ref, ComposedNodeType::NodeReference { .. }));
+        assert!(matches!(junction, ComposedNodeType::Junction { .. }));
+        assert!(matches!(transform, ComposedNodeType::Transform { .. }));
+        assert!(matches!(aggregate, ComposedNodeType::Aggregate { .. }));
+    }
+
+    // ========== ComposedNode Factory Methods ==========
+
+    #[test]
+    fn test_composed_node_new() {
+        let node = ComposedNode::new(
+            "test_node",
+            ComposedNodeType::Transform { operation: "map".to_string() }
+        );
+
+        assert_eq!(node.id, "test_node");
+        assert!(node.metadata.is_empty());
+        assert!(matches!(node.node_type, ComposedNodeType::Transform { operation } if operation == "map"));
+    }
+
+    #[test]
+    fn test_composed_node_graph_ref() {
+        let id = Uuid::new_v4();
+        let domain = GraphDomain::Workflow { graph_id: id };
+        let node = ComposedNode::graph_ref("ref1", domain.clone());
+
+        assert_eq!(node.id, "ref1");
+        assert!(matches!(
+            node.node_type,
+            ComposedNodeType::GraphReference { domain: d } if d == domain
+        ));
+    }
+
+    #[test]
+    fn test_composed_node_context_ref() {
+        let id = Uuid::new_v4();
+        let node = ComposedNode::context_ref("ctx_ref", id);
+
+        assert_eq!(node.id, "ctx_ref");
+        assert!(matches!(
+            node.node_type,
+            ComposedNodeType::GraphReference { domain: GraphDomain::Context { graph_id } } if graph_id == id
+        ));
+    }
+
+    #[test]
+    fn test_composed_node_workflow_ref() {
+        let id = Uuid::new_v4();
+        let node = ComposedNode::workflow_ref("wf_ref", id);
+
+        assert_eq!(node.id, "wf_ref");
+        assert!(matches!(
+            node.node_type,
+            ComposedNodeType::GraphReference { domain: GraphDomain::Workflow { graph_id } } if graph_id == id
+        ));
+    }
+
+    #[test]
+    fn test_composed_node_concept_ref() {
+        let id = Uuid::new_v4();
+        let node = ComposedNode::concept_ref("cpt_ref", id);
+
+        assert_eq!(node.id, "cpt_ref");
+        assert!(matches!(
+            node.node_type,
+            ComposedNodeType::GraphReference { domain: GraphDomain::Concept { graph_id } } if graph_id == id
+        ));
+    }
+
+    #[test]
+    fn test_composed_node_node_ref() {
+        let graph_id = Uuid::new_v4();
+        let node = ComposedNode::node_ref("ref1", graph_id, "internal_node");
+
+        assert_eq!(node.id, "ref1");
+        assert!(matches!(
+            node.node_type,
+            ComposedNodeType::NodeReference { graph_id: gid, node_id }
+                if gid == graph_id && node_id == "internal_node"
+        ));
+    }
+
+    #[test]
+    fn test_composed_node_junction_multiple_graphs() {
+        let ids = vec![Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4()];
+        let node = ComposedNode::junction("j1", ids.clone());
+
+        assert_eq!(node.id, "j1");
+        match node.node_type {
+            ComposedNodeType::Junction { connected_graphs } => {
+                assert_eq!(connected_graphs.len(), 3);
+                assert_eq!(connected_graphs, ids);
+            }
+            _ => panic!("Expected Junction node type"),
+        }
+    }
+
+    #[test]
+    fn test_composed_node_transform() {
+        let node = ComposedNode::transform("t1", "flatten");
+
+        assert_eq!(node.id, "t1");
+        match node.node_type {
+            ComposedNodeType::Transform { operation } => {
+                assert_eq!(operation, "flatten");
+            }
+            _ => panic!("Expected Transform node type"),
+        }
+    }
+
+    #[test]
+    fn test_composed_node_aggregate() {
+        let node = ComposedNode::aggregate("agg1", "count");
+
+        assert_eq!(node.id, "agg1");
+        match node.node_type {
+            ComposedNodeType::Aggregate { aggregation_type } => {
+                assert_eq!(aggregation_type, "count");
+            }
+            _ => panic!("Expected Aggregate node type"),
+        }
+    }
+
+    #[test]
+    fn test_composed_node_implements_node_trait() {
+        let node = ComposedNode::new("trait_test", ComposedNodeType::Junction { connected_graphs: vec![] });
+        assert_eq!(Node::id(&node), "trait_test");
+    }
+
+    // ========== ComposedEdgeType Tests ==========
+
+    #[test]
+    fn test_composed_edge_type_variants() {
+        let id1 = Uuid::new_v4();
+        let id2 = Uuid::new_v4();
+
+        let cross_link = ComposedEdgeType::CrossGraphLink { source_graph: id1, target_graph: id2 };
+        let data_flow = ComposedEdgeType::DataFlow { flow_type: "stream".to_string() };
+        let control = ComposedEdgeType::ControlFlow;
+        let dep = ComposedEdgeType::Dependency { dependency_type: "requires".to_string() };
+        let transform = ComposedEdgeType::Transformation { transform: "encode".to_string() };
+        let sync = ComposedEdgeType::Synchronization;
+
+        assert!(matches!(cross_link, ComposedEdgeType::CrossGraphLink { .. }));
+        assert!(matches!(data_flow, ComposedEdgeType::DataFlow { .. }));
+        assert!(matches!(control, ComposedEdgeType::ControlFlow));
+        assert!(matches!(dep, ComposedEdgeType::Dependency { .. }));
+        assert!(matches!(transform, ComposedEdgeType::Transformation { .. }));
+        assert!(matches!(sync, ComposedEdgeType::Synchronization));
+    }
+
+    #[test]
+    fn test_composed_edge_type_equality() {
+        let id1 = Uuid::new_v4();
+        let id2 = Uuid::new_v4();
+
+        let e1 = ComposedEdgeType::ControlFlow;
+        let e2 = ComposedEdgeType::ControlFlow;
+        let e3 = ComposedEdgeType::Synchronization;
+
+        assert_eq!(e1, e2);
+        assert_ne!(e1, e3);
+
+        let d1 = ComposedEdgeType::DataFlow { flow_type: "push".to_string() };
+        let d2 = ComposedEdgeType::DataFlow { flow_type: "push".to_string() };
+        let d3 = ComposedEdgeType::DataFlow { flow_type: "pull".to_string() };
+
+        assert_eq!(d1, d2);
+        assert_ne!(d1, d3);
+
+        let c1 = ComposedEdgeType::CrossGraphLink { source_graph: id1, target_graph: id2 };
+        let c2 = ComposedEdgeType::CrossGraphLink { source_graph: id1, target_graph: id2 };
+        let c3 = ComposedEdgeType::CrossGraphLink { source_graph: id2, target_graph: id1 };
+
+        assert_eq!(c1, c2);
+        assert_ne!(c1, c3);
+    }
+
+    // ========== ComposedEdge Factory Methods ==========
+
+    #[test]
+    fn test_composed_edge_new() {
+        let edge = ComposedEdge::new(
+            "e1",
+            "src",
+            "tgt",
+            ComposedEdgeType::ControlFlow,
+        );
+
+        assert_eq!(edge.id, "e1");
+        assert_eq!(edge.source, "src");
+        assert_eq!(edge.target, "tgt");
+        assert!(edge.metadata.is_empty());
+        assert!(matches!(edge.edge_type, ComposedEdgeType::ControlFlow));
+    }
+
+    #[test]
+    fn test_composed_edge_control_flow() {
+        let edge = ComposedEdge::control_flow("cf1", "start", "end");
+
+        assert_eq!(edge.id, "cf1");
+        assert_eq!(edge.source, "start");
+        assert_eq!(edge.target, "end");
+        assert!(matches!(edge.edge_type, ComposedEdgeType::ControlFlow));
+    }
+
+    #[test]
+    fn test_composed_edge_dependency() {
+        let edge = ComposedEdge::dependency("dep1", "consumer", "provider", "requires");
+
+        assert_eq!(edge.id, "dep1");
+        assert_eq!(edge.source, "consumer");
+        assert_eq!(edge.target, "provider");
+        match edge.edge_type {
+            ComposedEdgeType::Dependency { dependency_type } => {
+                assert_eq!(dependency_type, "requires");
+            }
+            _ => panic!("Expected Dependency edge type"),
+        }
+    }
+
+    #[test]
+    fn test_composed_edge_synchronization() {
+        let edge = ComposedEdge::synchronization("sync1", "primary", "replica");
+
+        assert_eq!(edge.id, "sync1");
+        assert_eq!(edge.source, "primary");
+        assert_eq!(edge.target, "replica");
+        assert!(matches!(edge.edge_type, ComposedEdgeType::Synchronization));
+    }
+
+    #[test]
+    fn test_composed_edge_implements_edge_trait() {
+        let edge = ComposedEdge::control_flow("trait_test", "a", "b");
+
+        assert_eq!(Edge::id(&edge), "trait_test");
+        assert_eq!(Edge::source(&edge), "a");
+        assert_eq!(Edge::target(&edge), "b");
+    }
+
+    // ========== ComposedProjection Extension Methods ==========
+
+    fn create_test_projection() -> ComposedProjection {
+        let mut projection = ComposedProjection::new(Uuid::new_v4(), crate::core::GraphType::ComposedGraph);
+
+        let ipld_id = Uuid::new_v4();
+        let ctx_id = Uuid::new_v4();
+        let wf_id = Uuid::new_v4();
+
+        // Add graph reference nodes
+        let ipld_ref = ComposedNode::ipld_ref("ipld1", ipld_id);
+        let ctx_ref = ComposedNode::context_ref("ctx1", ctx_id);
+        let wf_ref = ComposedNode::workflow_ref("wf1", wf_id);
+
+        // Add junction
+        let junction = ComposedNode::junction("j1", vec![ipld_id, ctx_id, wf_id]);
+
+        // Add transform and aggregate
+        let transform = ComposedNode::transform("t1", "filter");
+        let aggregate = ComposedNode::aggregate("a1", "merge");
+
+        projection.nodes.insert("ipld1".to_string(), ipld_ref);
+        projection.nodes.insert("ctx1".to_string(), ctx_ref);
+        projection.nodes.insert("wf1".to_string(), wf_ref);
+        projection.nodes.insert("j1".to_string(), junction);
+        projection.nodes.insert("t1".to_string(), transform);
+        projection.nodes.insert("a1".to_string(), aggregate);
+
+        // Add edges
+        let cross_link = ComposedEdge::cross_graph_link("cl1", "ipld1", "ctx1", ipld_id, ctx_id);
+        let data_flow = ComposedEdge::data_flow("df1", "t1", "a1", "json");
+        let control = ComposedEdge::control_flow("cf1", "ctx1", "wf1");
+
+        projection.edges.insert("cl1".to_string(), cross_link);
+        projection.edges.insert("df1".to_string(), data_flow);
+        projection.edges.insert("cf1".to_string(), control);
+
+        // Update adjacency
+        projection.adjacency.insert("ipld1".to_string(), vec!["ctx1".to_string()]);
+        projection.adjacency.insert("ctx1".to_string(), vec!["wf1".to_string()]);
+        projection.adjacency.insert("t1".to_string(), vec!["a1".to_string()]);
+        projection.adjacency.insert("wf1".to_string(), vec![]);
+        projection.adjacency.insert("j1".to_string(), vec![]);
+        projection.adjacency.insert("a1".to_string(), vec![]);
+
+        projection
+    }
+
+    #[test]
+    fn test_get_graph_references() {
+        let projection = create_test_projection();
+        let refs = projection.get_graph_references();
+
+        // Should find ipld1, ctx1, wf1 (3 graph references)
+        assert_eq!(refs.len(), 3);
+
+        let ids: Vec<_> = refs.iter().map(|n| n.id.as_str()).collect();
+        assert!(ids.contains(&"ipld1"));
+        assert!(ids.contains(&"ctx1"));
+        assert!(ids.contains(&"wf1"));
+    }
+
+    #[test]
+    fn test_get_graphs_by_domain() {
+        let projection = create_test_projection();
+
+        // Get only IPLD graphs
+        let ipld_graphs = projection.get_graphs_by_domain(|d| matches!(d, GraphDomain::Ipld { .. }));
+        assert_eq!(ipld_graphs.len(), 1);
+        assert_eq!(ipld_graphs[0].id, "ipld1");
+
+        // Get only context graphs
+        let ctx_graphs = projection.get_graphs_by_domain(|d| matches!(d, GraphDomain::Context { .. }));
+        assert_eq!(ctx_graphs.len(), 1);
+        assert_eq!(ctx_graphs[0].id, "ctx1");
+
+        // Get only workflow graphs
+        let wf_graphs = projection.get_graphs_by_domain(|d| matches!(d, GraphDomain::Workflow { .. }));
+        assert_eq!(wf_graphs.len(), 1);
+        assert_eq!(wf_graphs[0].id, "wf1");
+
+        // No concept graphs
+        let cpt_graphs = projection.get_graphs_by_domain(|d| matches!(d, GraphDomain::Concept { .. }));
+        assert_eq!(cpt_graphs.len(), 0);
+    }
+
+    #[test]
+    fn test_get_ipld_graphs() {
+        let mut projection = ComposedProjection::new(Uuid::new_v4(), crate::core::GraphType::ComposedGraph);
+
+        let id1 = Uuid::new_v4();
+        let id2 = Uuid::new_v4();
+
+        projection.nodes.insert("ipld1".to_string(), ComposedNode::ipld_ref("ipld1", id1));
+        projection.nodes.insert("ipld2".to_string(), ComposedNode::ipld_ref("ipld2", id2));
+        projection.nodes.insert("ctx1".to_string(), ComposedNode::context_ref("ctx1", Uuid::new_v4()));
+
+        let ipld_graphs = projection.get_ipld_graphs();
+
+        assert_eq!(ipld_graphs.len(), 2);
+        let graph_ids: Vec<_> = ipld_graphs.iter().map(|(_, gid)| *gid).collect();
+        assert!(graph_ids.contains(&id1));
+        assert!(graph_ids.contains(&id2));
+    }
+
+    #[test]
+    fn test_get_junctions() {
+        let projection = create_test_projection();
+        let junctions = projection.get_junctions();
+
+        assert_eq!(junctions.len(), 1);
+        assert_eq!(junctions[0].id, "j1");
+    }
+
+    #[test]
+    fn test_get_cross_graph_links() {
+        let projection = create_test_projection();
+        let links = projection.get_cross_graph_links();
+
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].id, "cl1");
+    }
+
+    #[test]
+    fn test_get_connected_graphs() {
+        let projection = create_test_projection();
+        let connected = projection.get_connected_graphs("j1");
+
+        assert_eq!(connected.len(), 3);
+    }
+
+    #[test]
+    fn test_get_connected_graphs_nonexistent() {
+        let projection = create_test_projection();
+        let connected = projection.get_connected_graphs("nonexistent");
+
+        assert!(connected.is_empty());
+    }
+
+    #[test]
+    fn test_get_connected_graphs_non_junction() {
+        let projection = create_test_projection();
+        // t1 is a transform node, not a junction
+        let connected = projection.get_connected_graphs("t1");
+
+        assert!(connected.is_empty());
+    }
+
+    #[test]
+    fn test_get_transformations() {
+        let projection = create_test_projection();
+        let transforms = projection.get_transformations();
+
+        assert_eq!(transforms.len(), 1);
+        assert_eq!(transforms[0].id, "t1");
+    }
+
+    #[test]
+    fn test_get_aggregations() {
+        let projection = create_test_projection();
+        let aggregations = projection.get_aggregations();
+
+        assert_eq!(aggregations.len(), 1);
+        assert_eq!(aggregations[0].id, "a1");
+    }
+
+    // ========== Graph Path Finding Tests ==========
+
+    #[test]
+    fn test_find_graph_paths_direct() {
+        let mut projection = ComposedProjection::new(Uuid::new_v4(), crate::core::GraphType::ComposedGraph);
+
+        let g1 = Uuid::new_v4();
+        let g2 = Uuid::new_v4();
+
+        projection.nodes.insert("n1".to_string(), ComposedNode::ipld_ref("n1", g1));
+        projection.nodes.insert("n2".to_string(), ComposedNode::ipld_ref("n2", g2));
+        projection.edges.insert("e1".to_string(), ComposedEdge::control_flow("e1", "n1", "n2"));
+        projection.adjacency.insert("n1".to_string(), vec!["n2".to_string()]);
+        projection.adjacency.insert("n2".to_string(), vec![]);
+
+        let paths = projection.find_graph_paths(g1, g2);
+
+        assert_eq!(paths.len(), 1);
+        assert_eq!(paths[0], vec!["n1", "n2"]);
+    }
+
+    #[test]
+    fn test_find_graph_paths_no_path() {
+        let mut projection = ComposedProjection::new(Uuid::new_v4(), crate::core::GraphType::ComposedGraph);
+
+        let g1 = Uuid::new_v4();
+        let g2 = Uuid::new_v4();
+
+        // Two disconnected nodes
+        projection.nodes.insert("n1".to_string(), ComposedNode::ipld_ref("n1", g1));
+        projection.nodes.insert("n2".to_string(), ComposedNode::ipld_ref("n2", g2));
+        projection.adjacency.insert("n1".to_string(), vec![]);
+        projection.adjacency.insert("n2".to_string(), vec![]);
+
+        let paths = projection.find_graph_paths(g1, g2);
+
+        assert!(paths.is_empty());
+    }
+
+    #[test]
+    fn test_find_graph_paths_multiple_paths() {
+        let mut projection = ComposedProjection::new(Uuid::new_v4(), crate::core::GraphType::ComposedGraph);
+
+        let g1 = Uuid::new_v4();
+        let g2 = Uuid::new_v4();
+
+        // Diamond shape: n1 -> n2 -> n4, n1 -> n3 -> n4
+        projection.nodes.insert("n1".to_string(), ComposedNode::ipld_ref("n1", g1));
+        projection.nodes.insert("n2".to_string(), ComposedNode::transform("n2", "op1"));
+        projection.nodes.insert("n3".to_string(), ComposedNode::transform("n3", "op2"));
+        projection.nodes.insert("n4".to_string(), ComposedNode::ipld_ref("n4", g2));
+
+        projection.edges.insert("e1".to_string(), ComposedEdge::control_flow("e1", "n1", "n2"));
+        projection.edges.insert("e2".to_string(), ComposedEdge::control_flow("e2", "n1", "n3"));
+        projection.edges.insert("e3".to_string(), ComposedEdge::control_flow("e3", "n2", "n4"));
+        projection.edges.insert("e4".to_string(), ComposedEdge::control_flow("e4", "n3", "n4"));
+
+        projection.adjacency.insert("n1".to_string(), vec!["n2".to_string(), "n3".to_string()]);
+        projection.adjacency.insert("n2".to_string(), vec!["n4".to_string()]);
+        projection.adjacency.insert("n3".to_string(), vec!["n4".to_string()]);
+        projection.adjacency.insert("n4".to_string(), vec![]);
+
+        let paths = projection.find_graph_paths(g1, g2);
+
+        assert_eq!(paths.len(), 2);
+    }
+
+    #[test]
+    fn test_find_graph_paths_different_domains() {
+        let mut projection = ComposedProjection::new(Uuid::new_v4(), crate::core::GraphType::ComposedGraph);
+
+        let g1 = Uuid::new_v4();
+        let g2 = Uuid::new_v4();
+
+        // Test with different domain types that have same graph_id
+        projection.nodes.insert("n1".to_string(), ComposedNode::context_ref("n1", g1));
+        projection.nodes.insert("n2".to_string(), ComposedNode::workflow_ref("n2", g2));
+        projection.edges.insert("e1".to_string(), ComposedEdge::control_flow("e1", "n1", "n2"));
+        projection.adjacency.insert("n1".to_string(), vec!["n2".to_string()]);
+        projection.adjacency.insert("n2".to_string(), vec![]);
+
+        let paths = projection.find_graph_paths(g1, g2);
+
+        assert_eq!(paths.len(), 1);
+    }
+
+    // ========== Validation Tests ==========
+
+    #[test]
+    fn test_validate_connected_graph_references() {
+        let projection = create_test_projection();
+
+        // All graph references have connections, should pass
+        let result = projection.validate();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_orphaned_graph_reference() {
+        let mut projection = ComposedProjection::new(Uuid::new_v4(), crate::core::GraphType::ComposedGraph);
+
+        // Add a graph reference with no edges
+        let orphan = ComposedNode::ipld_ref("orphan", Uuid::new_v4());
+        projection.nodes.insert("orphan".to_string(), orphan);
+
+        let result = projection.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("not connected"));
+    }
+
+    #[test]
+    fn test_validate_no_cycle_in_control_flow() {
+        let mut projection = ComposedProjection::new(Uuid::new_v4(), crate::core::GraphType::ComposedGraph);
+
+        // Linear control flow: a -> b -> c
+        projection.nodes.insert("a".to_string(), ComposedNode::transform("a", "op1"));
+        projection.nodes.insert("b".to_string(), ComposedNode::transform("b", "op2"));
+        projection.nodes.insert("c".to_string(), ComposedNode::transform("c", "op3"));
+
+        projection.edges.insert("e1".to_string(), ComposedEdge::control_flow("e1", "a", "b"));
+        projection.edges.insert("e2".to_string(), ComposedEdge::control_flow("e2", "b", "c"));
+
+        projection.adjacency.insert("a".to_string(), vec!["b".to_string()]);
+        projection.adjacency.insert("b".to_string(), vec!["c".to_string()]);
+        projection.adjacency.insert("c".to_string(), vec![]);
+
+        let result = projection.validate();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_cycle_in_control_flow() {
+        let mut projection = ComposedProjection::new(Uuid::new_v4(), crate::core::GraphType::ComposedGraph);
+
+        // Cyclic control flow: a -> b -> c -> a
+        projection.nodes.insert("a".to_string(), ComposedNode::transform("a", "op1"));
+        projection.nodes.insert("b".to_string(), ComposedNode::transform("b", "op2"));
+        projection.nodes.insert("c".to_string(), ComposedNode::transform("c", "op3"));
+
+        projection.edges.insert("e1".to_string(), ComposedEdge::control_flow("e1", "a", "b"));
+        projection.edges.insert("e2".to_string(), ComposedEdge::control_flow("e2", "b", "c"));
+        projection.edges.insert("e3".to_string(), ComposedEdge::control_flow("e3", "c", "a"));
+
+        projection.adjacency.insert("a".to_string(), vec!["b".to_string()]);
+        projection.adjacency.insert("b".to_string(), vec!["c".to_string()]);
+        projection.adjacency.insert("c".to_string(), vec!["a".to_string()]);
+
+        let result = projection.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Cyclic control flow"));
+    }
+
+    #[test]
+    fn test_validate_data_flow_cycle_allowed() {
+        let mut projection = ComposedProjection::new(Uuid::new_v4(), crate::core::GraphType::ComposedGraph);
+
+        // Cyclic data flow (feedback loop) should be allowed
+        projection.nodes.insert("a".to_string(), ComposedNode::transform("a", "op1"));
+        projection.nodes.insert("b".to_string(), ComposedNode::transform("b", "op2"));
+
+        projection.edges.insert("e1".to_string(), ComposedEdge::data_flow("e1", "a", "b", "stream"));
+        projection.edges.insert("e2".to_string(), ComposedEdge::data_flow("e2", "b", "a", "feedback"));
+
+        projection.adjacency.insert("a".to_string(), vec!["b".to_string()]);
+        projection.adjacency.insert("b".to_string(), vec!["a".to_string()]);
+
+        let result = projection.validate();
+        // No graph references, so validation should pass
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_empty_graph() {
+        let projection = ComposedProjection::new(Uuid::new_v4(), crate::core::GraphType::ComposedGraph);
+
+        let result = projection.validate();
+        // Empty graph should be valid
+        assert!(result.is_ok());
+    }
+
+    // ========== Edge Case Tests ==========
+
+    #[test]
+    fn test_empty_junction() {
+        let node = ComposedNode::junction("empty_j", vec![]);
+
+        match node.node_type {
+            ComposedNodeType::Junction { connected_graphs } => {
+                assert!(connected_graphs.is_empty());
+            }
+            _ => panic!("Expected Junction node type"),
+        }
+    }
+
+    #[test]
+    fn test_string_conversion() {
+        // Test Into<String> trait usage
+        let s: String = "test".to_string();
+        let node1 = ComposedNode::new(&s, ComposedNodeType::Transform { operation: "op1".to_string() });
+        let node2 = ComposedNode::new(s.clone(), ComposedNodeType::Transform { operation: "op2".to_string() });
+
+        assert_eq!(node1.id, "test");
+        assert_eq!(node2.id, "test");
     }
 }

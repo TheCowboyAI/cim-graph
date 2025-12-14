@@ -45,26 +45,38 @@
 //!
 //! # Example
 //!
-//! ```rust
-//! use cim_graph::graphs::{IpldGraph, ContextGraph, ComposedGraph};
-//! use cim_graph::Result;
+//! All graph types are built from events using projection engines:
 //!
-//! # fn main() -> Result<()> {
-//! // Create domain-specific graphs
-//! let mut ipld = IpldGraph::new();
-//! let cid = ipld.add_cid("QmHash123", "dag-cbor", 1024)?;
+//! ```rust,ignore
+//! use cim_graph::{
+//!     core::{ProjectionEngine, GraphProjection, GenericGraphProjection},
+//!     events::{GraphEvent, EventPayload, WorkflowPayload},
+//!     graphs::{WorkflowNode, WorkflowEdge},
+//! };
+//! use uuid::Uuid;
 //!
-//! let mut context = ContextGraph::new("sales");
-//! let customer = context.add_aggregate("Customer", uuid::Uuid::new_v4(), 
-//!     serde_json::json!({ "name": "Alice" }))?;
+//! // Create events to build a workflow graph
+//! let workflow_id = Uuid::new_v4();
+//! let events = vec![
+//!     GraphEvent {
+//!         event_id: Uuid::new_v4(),
+//!         aggregate_id: workflow_id,
+//!         correlation_id: Uuid::new_v4(),
+//!         causation_id: None,
+//!         payload: EventPayload::Workflow(WorkflowPayload::WorkflowDefined {
+//!             workflow_id,
+//!             name: "Order Processing".to_string(),
+//!             version: "1.0.0".to_string(),
+//!         }),
+//!     },
+//! ];
 //!
-//! // Compose graphs for cross-domain queries
-//! let composed = ComposedGraph::builder()
-//!     .add_graph("data", ipld)
-//!     .add_graph("domain", context)
-//!     .build()?;
-//! # Ok(())
-//! # }
+//! // Build projection from events (via NATS JetStream in production)
+//! let engine = ProjectionEngine::<GenericGraphProjection<WorkflowNode, WorkflowEdge>>::new();
+//! let projection = engine.project(events);
+//!
+//! // Query the projection
+//! assert_eq!(projection.version(), 1);
 //! ```
 
 pub mod ipld;

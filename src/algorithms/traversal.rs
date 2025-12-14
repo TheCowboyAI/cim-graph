@@ -63,24 +63,24 @@ fn dfs_helper<P: GraphProjection>(
 }
 
 /// Topological sort (for DAGs)
-pub fn topological_sort<P: GraphProjection>(projection: &P) -> Result<Vec<String>> 
+pub fn topological_sort<P: GraphProjection>(projection: &P) -> Result<Vec<String>>
 where
     P::Node: Node,
 {
     let nodes = projection.nodes();
     let mut in_degree = HashMap::new();
     let mut result = Vec::new();
-    
+
     // Calculate in-degrees
     for node in &nodes {
         let node_id = node.id();
         in_degree.entry(node_id.clone()).or_insert(0);
-        
+
         for neighbor in projection.neighbors(&node_id) {
             *in_degree.entry(neighbor.to_string()).or_insert(0) += 1;
         }
     }
-    
+
     // Find nodes with no incoming edges
     let mut queue = VecDeque::new();
     for (node_id, &degree) in &in_degree {
@@ -88,11 +88,11 @@ where
             queue.push_back(node_id.clone());
         }
     }
-    
+
     // Process nodes
     while let Some(current) = queue.pop_front() {
         result.push(current.clone());
-        
+
         for neighbor in projection.neighbors(&current) {
             if let Some(degree) = in_degree.get_mut(neighbor) {
                 *degree -= 1;
@@ -102,13 +102,343 @@ where
             }
         }
     }
-    
+
     // Check for cycles
     if result.len() != nodes.len() {
         return Err(GraphError::InvalidOperation(
             "Graph contains cycles - cannot perform topological sort".to_string(),
         ));
     }
-    
+
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graphs::workflow::{WorkflowNode, WorkflowEdge, WorkflowNodeType};
+    use crate::core::projection_engine::GenericGraphProjection;
+    use crate::core::GraphType;
+    use uuid::Uuid;
+
+    type TestProjection = GenericGraphProjection<WorkflowNode, WorkflowEdge>;
+
+    fn create_empty_projection() -> TestProjection {
+        GenericGraphProjection::new(Uuid::new_v4(), GraphType::Generic)
+    }
+
+    fn create_linear_graph() -> TestProjection {
+        // Creates: A -> B -> C
+        let mut projection = create_empty_projection();
+
+        let node_a = WorkflowNode::new("A", WorkflowNodeType::Start);
+        let node_b = WorkflowNode::state("B", "Middle");
+        let node_c = WorkflowNode::new("C", WorkflowNodeType::End);
+
+        projection.nodes.insert("A".to_string(), node_a);
+        projection.nodes.insert("B".to_string(), node_b);
+        projection.nodes.insert("C".to_string(), node_c);
+
+        let edge_ab = WorkflowEdge::transition("e1", "A", "B");
+        let edge_bc = WorkflowEdge::transition("e2", "B", "C");
+
+        projection.edges.insert("e1".to_string(), edge_ab);
+        projection.edges.insert("e2".to_string(), edge_bc);
+
+        projection.adjacency.insert("A".to_string(), vec!["B".to_string()]);
+        projection.adjacency.insert("B".to_string(), vec!["C".to_string()]);
+        projection.adjacency.insert("C".to_string(), vec![]);
+
+        projection
+    }
+
+    fn create_branching_graph() -> TestProjection {
+        // Creates:
+        //     B
+        //   /   \
+        // A       D
+        //   \   /
+        //     C
+        let mut projection = create_empty_projection();
+
+        let node_a = WorkflowNode::new("A", WorkflowNodeType::Start);
+        let node_b = WorkflowNode::state("B", "Branch1");
+        let node_c = WorkflowNode::state("C", "Branch2");
+        let node_d = WorkflowNode::new("D", WorkflowNodeType::End);
+
+        projection.nodes.insert("A".to_string(), node_a);
+        projection.nodes.insert("B".to_string(), node_b);
+        projection.nodes.insert("C".to_string(), node_c);
+        projection.nodes.insert("D".to_string(), node_d);
+
+        let edge_ab = WorkflowEdge::transition("e1", "A", "B");
+        let edge_ac = WorkflowEdge::transition("e2", "A", "C");
+        let edge_bd = WorkflowEdge::transition("e3", "B", "D");
+        let edge_cd = WorkflowEdge::transition("e4", "C", "D");
+
+        projection.edges.insert("e1".to_string(), edge_ab);
+        projection.edges.insert("e2".to_string(), edge_ac);
+        projection.edges.insert("e3".to_string(), edge_bd);
+        projection.edges.insert("e4".to_string(), edge_cd);
+
+        projection.adjacency.insert("A".to_string(), vec!["B".to_string(), "C".to_string()]);
+        projection.adjacency.insert("B".to_string(), vec!["D".to_string()]);
+        projection.adjacency.insert("C".to_string(), vec!["D".to_string()]);
+        projection.adjacency.insert("D".to_string(), vec![]);
+
+        projection
+    }
+
+    fn create_disconnected_graph() -> TestProjection {
+        // Creates: A -> B   C -> D (two disconnected components)
+        let mut projection = create_empty_projection();
+
+        let node_a = WorkflowNode::new("A", WorkflowNodeType::Start);
+        let node_b = WorkflowNode::state("B", "End1");
+        let node_c = WorkflowNode::state("C", "Start2");
+        let node_d = WorkflowNode::new("D", WorkflowNodeType::End);
+
+        projection.nodes.insert("A".to_string(), node_a);
+        projection.nodes.insert("B".to_string(), node_b);
+        projection.nodes.insert("C".to_string(), node_c);
+        projection.nodes.insert("D".to_string(), node_d);
+
+        let edge_ab = WorkflowEdge::transition("e1", "A", "B");
+        let edge_cd = WorkflowEdge::transition("e2", "C", "D");
+
+        projection.edges.insert("e1".to_string(), edge_ab);
+        projection.edges.insert("e2".to_string(), edge_cd);
+
+        projection.adjacency.insert("A".to_string(), vec!["B".to_string()]);
+        projection.adjacency.insert("B".to_string(), vec![]);
+        projection.adjacency.insert("C".to_string(), vec!["D".to_string()]);
+        projection.adjacency.insert("D".to_string(), vec![]);
+
+        projection
+    }
+
+    // ========== BFS Tests ==========
+
+    #[test]
+    fn test_bfs_linear_graph() {
+        let projection = create_linear_graph();
+        let result = bfs(&projection, "A").unwrap();
+
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0], "A");
+        assert_eq!(result[1], "B");
+        assert_eq!(result[2], "C");
+    }
+
+    #[test]
+    fn test_bfs_branching_graph() {
+        let projection = create_branching_graph();
+        let result = bfs(&projection, "A").unwrap();
+
+        assert_eq!(result.len(), 4);
+        assert_eq!(result[0], "A");
+        // B and C can be in either order at level 1
+        assert!(result[1] == "B" || result[1] == "C");
+        assert!(result[2] == "B" || result[2] == "C");
+        assert_ne!(result[1], result[2]);
+        assert_eq!(result[3], "D");
+    }
+
+    #[test]
+    fn test_bfs_from_middle() {
+        let projection = create_linear_graph();
+        let result = bfs(&projection, "B").unwrap();
+
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0], "B");
+        assert_eq!(result[1], "C");
+    }
+
+    #[test]
+    fn test_bfs_node_not_found() {
+        let projection = create_linear_graph();
+        let result = bfs(&projection, "X");
+
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            GraphError::NodeNotFound(id) => assert_eq!(id, "X"),
+            _ => panic!("Expected NodeNotFound error"),
+        }
+    }
+
+    #[test]
+    fn test_bfs_single_node() {
+        let mut projection = create_empty_projection();
+        let node = WorkflowNode::new("A", WorkflowNodeType::Start);
+        projection.nodes.insert("A".to_string(), node);
+        projection.adjacency.insert("A".to_string(), vec![]);
+
+        let result = bfs(&projection, "A").unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0], "A");
+    }
+
+    #[test]
+    fn test_bfs_disconnected_graph() {
+        let projection = create_disconnected_graph();
+
+        // BFS from A should only find A and B
+        let result_a = bfs(&projection, "A").unwrap();
+        assert_eq!(result_a.len(), 2);
+        assert!(result_a.contains(&"A".to_string()));
+        assert!(result_a.contains(&"B".to_string()));
+
+        // BFS from C should only find C and D
+        let result_c = bfs(&projection, "C").unwrap();
+        assert_eq!(result_c.len(), 2);
+        assert!(result_c.contains(&"C".to_string()));
+        assert!(result_c.contains(&"D".to_string()));
+    }
+
+    // ========== DFS Tests ==========
+
+    #[test]
+    fn test_dfs_linear_graph() {
+        let projection = create_linear_graph();
+        let result = dfs(&projection, "A").unwrap();
+
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0], "A");
+        assert_eq!(result[1], "B");
+        assert_eq!(result[2], "C");
+    }
+
+    #[test]
+    fn test_dfs_branching_graph() {
+        let projection = create_branching_graph();
+        let result = dfs(&projection, "A").unwrap();
+
+        assert_eq!(result.len(), 4);
+        assert_eq!(result[0], "A");
+        // DFS will go deep first, so either B->D or C->D path
+        assert!(result.contains(&"A".to_string()));
+        assert!(result.contains(&"B".to_string()));
+        assert!(result.contains(&"C".to_string()));
+        assert!(result.contains(&"D".to_string()));
+    }
+
+    #[test]
+    fn test_dfs_from_middle() {
+        let projection = create_linear_graph();
+        let result = dfs(&projection, "B").unwrap();
+
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0], "B");
+        assert_eq!(result[1], "C");
+    }
+
+    #[test]
+    fn test_dfs_node_not_found() {
+        let projection = create_linear_graph();
+        let result = dfs(&projection, "Z");
+
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            GraphError::NodeNotFound(id) => assert_eq!(id, "Z"),
+            _ => panic!("Expected NodeNotFound error"),
+        }
+    }
+
+    #[test]
+    fn test_dfs_single_node() {
+        let mut projection = create_empty_projection();
+        let node = WorkflowNode::new("X", WorkflowNodeType::Start);
+        projection.nodes.insert("X".to_string(), node);
+        projection.adjacency.insert("X".to_string(), vec![]);
+
+        let result = dfs(&projection, "X").unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0], "X");
+    }
+
+    #[test]
+    fn test_dfs_disconnected_graph() {
+        let projection = create_disconnected_graph();
+
+        // DFS from A should only find A and B
+        let result_a = dfs(&projection, "A").unwrap();
+        assert_eq!(result_a.len(), 2);
+        assert!(result_a.contains(&"A".to_string()));
+        assert!(result_a.contains(&"B".to_string()));
+    }
+
+    // ========== Topological Sort Tests ==========
+
+    #[test]
+    fn test_topological_sort_linear() {
+        let projection = create_linear_graph();
+        let result = topological_sort(&projection).unwrap();
+
+        assert_eq!(result.len(), 3);
+        // A must come before B, B must come before C
+        let pos_a = result.iter().position(|x| x == "A").unwrap();
+        let pos_b = result.iter().position(|x| x == "B").unwrap();
+        let pos_c = result.iter().position(|x| x == "C").unwrap();
+
+        assert!(pos_a < pos_b);
+        assert!(pos_b < pos_c);
+    }
+
+    #[test]
+    fn test_topological_sort_branching() {
+        let projection = create_branching_graph();
+        let result = topological_sort(&projection).unwrap();
+
+        assert_eq!(result.len(), 4);
+
+        // A must come before B and C
+        let pos_a = result.iter().position(|x| x == "A").unwrap();
+        let pos_b = result.iter().position(|x| x == "B").unwrap();
+        let pos_c = result.iter().position(|x| x == "C").unwrap();
+        let pos_d = result.iter().position(|x| x == "D").unwrap();
+
+        assert!(pos_a < pos_b);
+        assert!(pos_a < pos_c);
+        // B and C must come before D
+        assert!(pos_b < pos_d);
+        assert!(pos_c < pos_d);
+    }
+
+    #[test]
+    fn test_topological_sort_empty_graph() {
+        let projection = create_empty_projection();
+        let result = topological_sort(&projection).unwrap();
+
+        assert_eq!(result.len(), 0);
+    }
+
+    #[test]
+    fn test_topological_sort_single_node() {
+        let mut projection = create_empty_projection();
+        let node = WorkflowNode::new("A", WorkflowNodeType::Start);
+        projection.nodes.insert("A".to_string(), node);
+        projection.adjacency.insert("A".to_string(), vec![]);
+
+        let result = topological_sort(&projection).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0], "A");
+    }
+
+    #[test]
+    fn test_topological_sort_disconnected() {
+        let projection = create_disconnected_graph();
+        let result = topological_sort(&projection).unwrap();
+
+        assert_eq!(result.len(), 4);
+
+        // A must come before B
+        let pos_a = result.iter().position(|x| x == "A").unwrap();
+        let pos_b = result.iter().position(|x| x == "B").unwrap();
+        assert!(pos_a < pos_b);
+
+        // C must come before D
+        let pos_c = result.iter().position(|x| x == "C").unwrap();
+        let pos_d = result.iter().position(|x| x == "D").unwrap();
+        assert!(pos_c < pos_d);
+    }
 }

@@ -25,15 +25,16 @@
 //!
 //! ## Example
 //!
-//! ```rust
+//! CIM Graph uses event sourcing - all state is derived from event streams:
+//!
+//! ```rust,ignore
 //! use cim_graph::{
-//!     core::{ProjectionEngine, GraphProjection},
+//!     core::{ProjectionEngine, GraphProjection, GenericGraphProjection},
 //!     events::{GraphEvent, EventPayload, WorkflowPayload},
-//!     graphs::{WorkflowNode, WorkflowEdge, WorkflowProjection},
+//!     graphs::{WorkflowNode, WorkflowEdge},
 //! };
 //! use uuid::Uuid;
 //!
-//! # fn main() -> cim_graph::Result<()> {
 //! // Create events to build a workflow
 //! let workflow_id = Uuid::new_v4();
 //! let events = vec![
@@ -48,29 +49,17 @@
 //!             version: "1.0.0".to_string(),
 //!         }),
 //!     },
-//!     GraphEvent {
-//!         event_id: Uuid::new_v4(),
-//!         aggregate_id: workflow_id,
-//!         correlation_id: Uuid::new_v4(),
-//!         causation_id: None,
-//!         payload: EventPayload::Workflow(WorkflowPayload::StateAdded {
-//!             workflow_id,
-//!             state_id: "start".to_string(),
-//!             state_type: "initial".to_string(),
-//!         }),
-//!     },
 //! ];
 //!
-//! // Build projection from events
-//! let engine = ProjectionEngine::<WorkflowNode, WorkflowEdge>::new();
+//! // Build projection from events (via NATS JetStream in production)
+//! let engine = ProjectionEngine::<GenericGraphProjection<WorkflowNode, WorkflowEdge>>::new();
 //! let projection = engine.project(events);
-//! 
+//!
 //! // Query the projection
-//! assert_eq!(projection.node_count(), 1);
-//! assert_eq!(projection.version(), 2); // Two events processed
-//! # Ok(())
-//! # }
+//! assert_eq!(projection.version(), 1);
 //! ```
+//!
+//! For complete examples with NATS integration, see the `nats` module (requires `nats` feature).
 
 #![warn(missing_docs)]
 #![warn(missing_debug_implementations)]

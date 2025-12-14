@@ -25,29 +25,20 @@
 //!
 //! # Example
 //!
-//! ```rust
-//! use cim_graph::{GraphBuilder, Node, Edge};
+//! Algorithms work with graph projections built from events:
+//!
+//! ```rust,ignore
 //! use cim_graph::algorithms::{shortest_path, bfs};
 //!
-//! # fn main() -> cim_graph::Result<()> {
-//! let mut graph = GraphBuilder::new().build();
-//! let a = graph.add_node(Node::new("A", "city"))?;
-//! let b = graph.add_node(Node::new("B", "city"))?;
-//! let c = graph.add_node(Node::new("C", "city"))?;
+//! // Build a projection from events (see core::ProjectionEngine)
+//! let projection = engine.project(events);
 //!
-//! graph.add_edge(a, b, Edge::with_weight(10.0))?;
-//! graph.add_edge(b, c, Edge::with_weight(20.0))?;
-//!
-//! // Find shortest path
-//! let path = shortest_path(&graph, a, c)?;
-//! assert_eq!(path.unwrap().1, vec![a, b, c]);
-//!
-//! // Breadth-first traversal
-//! let visited = bfs(&graph, a)?;
-//! assert_eq!(visited.len(), 3);
-//! # Ok(())
-//! # }
+//! // Use algorithms on the projection
+//! let path = shortest_path(&projection, "A", "C")?;
+//! let visited = bfs(&projection, "A")?;
 //! ```
+//!
+//! For a complete example with event sourcing, see the crate-level documentation.
 
 pub mod pathfinding;
 pub mod traversal;

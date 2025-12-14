@@ -97,16 +97,283 @@ fn find_all_paths_dfs<P: GraphProjection>(
         all_paths.push(current_path.clone());
         return;
     }
-    
+
     for neighbor in projection.neighbors(current) {
         if !visited.contains_key(neighbor) {
             visited.insert(neighbor.to_string(), true);
             current_path.push(neighbor.to_string());
-            
+
             find_all_paths_dfs(projection, neighbor, target, visited, current_path, all_paths);
-            
+
             current_path.pop();
             visited.remove(neighbor);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graphs::workflow::{WorkflowNode, WorkflowEdge, WorkflowNodeType};
+    use crate::core::projection_engine::GenericGraphProjection;
+    use crate::core::GraphType;
+    use uuid::Uuid;
+
+    type TestProjection = GenericGraphProjection<WorkflowNode, WorkflowEdge>;
+
+    fn create_empty_projection() -> TestProjection {
+        GenericGraphProjection::new(Uuid::new_v4(), GraphType::Generic)
+    }
+
+    fn create_linear_graph() -> TestProjection {
+        // Creates: A -> B -> C -> D
+        let mut projection = create_empty_projection();
+
+        for id in ["A", "B", "C", "D"] {
+            let node = WorkflowNode::new(id, WorkflowNodeType::Start);
+            projection.nodes.insert(id.to_string(), node);
+        }
+
+        projection.adjacency.insert("A".to_string(), vec!["B".to_string()]);
+        projection.adjacency.insert("B".to_string(), vec!["C".to_string()]);
+        projection.adjacency.insert("C".to_string(), vec!["D".to_string()]);
+        projection.adjacency.insert("D".to_string(), vec![]);
+
+        projection
+    }
+
+    fn create_diamond_graph() -> TestProjection {
+        // Creates:
+        //     B
+        //   /   \
+        // A       D
+        //   \   /
+        //     C
+        let mut projection = create_empty_projection();
+
+        for id in ["A", "B", "C", "D"] {
+            let node = WorkflowNode::new(id, WorkflowNodeType::Start);
+            projection.nodes.insert(id.to_string(), node);
+        }
+
+        projection.adjacency.insert("A".to_string(), vec!["B".to_string(), "C".to_string()]);
+        projection.adjacency.insert("B".to_string(), vec!["D".to_string()]);
+        projection.adjacency.insert("C".to_string(), vec!["D".to_string()]);
+        projection.adjacency.insert("D".to_string(), vec![]);
+
+        projection
+    }
+
+    fn create_complex_graph() -> TestProjection {
+        // Creates:
+        // A -> B -> C
+        // |    |    |
+        // v    v    v
+        // D -> E -> F
+        let mut projection = create_empty_projection();
+
+        for id in ["A", "B", "C", "D", "E", "F"] {
+            let node = WorkflowNode::new(id, WorkflowNodeType::Start);
+            projection.nodes.insert(id.to_string(), node);
+        }
+
+        projection.adjacency.insert("A".to_string(), vec!["B".to_string(), "D".to_string()]);
+        projection.adjacency.insert("B".to_string(), vec!["C".to_string(), "E".to_string()]);
+        projection.adjacency.insert("C".to_string(), vec!["F".to_string()]);
+        projection.adjacency.insert("D".to_string(), vec!["E".to_string()]);
+        projection.adjacency.insert("E".to_string(), vec!["F".to_string()]);
+        projection.adjacency.insert("F".to_string(), vec![]);
+
+        projection
+    }
+
+    // ========== shortest_path Tests ==========
+
+    #[test]
+    fn test_shortest_path_linear_graph() {
+        let projection = create_linear_graph();
+        let result = shortest_path(&projection, "A", "D").unwrap();
+
+        assert!(result.is_some());
+        let path = result.unwrap();
+        assert_eq!(path, vec!["A", "B", "C", "D"]);
+    }
+
+    #[test]
+    fn test_shortest_path_diamond_graph() {
+        let projection = create_diamond_graph();
+        let result = shortest_path(&projection, "A", "D").unwrap();
+
+        assert!(result.is_some());
+        let path = result.unwrap();
+        // Path should be length 3 (A -> B/C -> D)
+        assert_eq!(path.len(), 3);
+        assert_eq!(path[0], "A");
+        assert_eq!(path[2], "D");
+        assert!(path[1] == "B" || path[1] == "C");
+    }
+
+    #[test]
+    fn test_shortest_path_same_node() {
+        let projection = create_linear_graph();
+        let result = shortest_path(&projection, "A", "A").unwrap();
+
+        assert!(result.is_some());
+        let path = result.unwrap();
+        assert_eq!(path, vec!["A"]);
+    }
+
+    #[test]
+    fn test_shortest_path_adjacent_nodes() {
+        let projection = create_linear_graph();
+        let result = shortest_path(&projection, "A", "B").unwrap();
+
+        assert!(result.is_some());
+        let path = result.unwrap();
+        assert_eq!(path, vec!["A", "B"]);
+    }
+
+    #[test]
+    fn test_shortest_path_no_path() {
+        let projection = create_linear_graph();
+        // D has no outgoing edges, so there's no path from D to A
+        let result = shortest_path(&projection, "D", "A").unwrap();
+
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_shortest_path_source_not_found() {
+        let projection = create_linear_graph();
+        let result = shortest_path(&projection, "X", "A");
+
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            GraphError::NodeNotFound(id) => assert_eq!(id, "X"),
+            _ => panic!("Expected NodeNotFound error"),
+        }
+    }
+
+    #[test]
+    fn test_shortest_path_target_not_found() {
+        let projection = create_linear_graph();
+        let result = shortest_path(&projection, "A", "X");
+
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            GraphError::NodeNotFound(id) => assert_eq!(id, "X"),
+            _ => panic!("Expected NodeNotFound error"),
+        }
+    }
+
+    #[test]
+    fn test_shortest_path_complex_graph() {
+        let projection = create_complex_graph();
+
+        // A to F: shortest path is A -> B -> C -> F (length 4)
+        // or A -> B -> E -> F or A -> D -> E -> F (all length 4)
+        let result = shortest_path(&projection, "A", "F").unwrap();
+        assert!(result.is_some());
+        let path = result.unwrap();
+        assert_eq!(path.len(), 4);
+        assert_eq!(path[0], "A");
+        assert_eq!(path[3], "F");
+    }
+
+    // ========== all_paths Tests ==========
+
+    #[test]
+    fn test_all_paths_linear_graph() {
+        let projection = create_linear_graph();
+        let result = all_paths(&projection, "A", "D").unwrap();
+
+        // Only one path in a linear graph
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0], vec!["A", "B", "C", "D"]);
+    }
+
+    #[test]
+    fn test_all_paths_diamond_graph() {
+        let projection = create_diamond_graph();
+        let result = all_paths(&projection, "A", "D").unwrap();
+
+        // Two paths: A->B->D and A->C->D
+        assert_eq!(result.len(), 2);
+
+        let path1 = vec!["A".to_string(), "B".to_string(), "D".to_string()];
+        let path2 = vec!["A".to_string(), "C".to_string(), "D".to_string()];
+
+        assert!(result.contains(&path1));
+        assert!(result.contains(&path2));
+    }
+
+    #[test]
+    fn test_all_paths_same_node() {
+        let projection = create_linear_graph();
+        let result = all_paths(&projection, "A", "A").unwrap();
+
+        // Path from A to A is just [A]
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0], vec!["A"]);
+    }
+
+    #[test]
+    fn test_all_paths_no_path() {
+        let projection = create_linear_graph();
+        // D has no outgoing edges
+        let result = all_paths(&projection, "D", "A").unwrap();
+
+        assert_eq!(result.len(), 0);
+    }
+
+    #[test]
+    fn test_all_paths_source_not_found() {
+        let projection = create_linear_graph();
+        let result = all_paths(&projection, "X", "A");
+
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            GraphError::NodeNotFound(id) => assert_eq!(id, "X"),
+            _ => panic!("Expected NodeNotFound error"),
+        }
+    }
+
+    #[test]
+    fn test_all_paths_target_not_found() {
+        let projection = create_linear_graph();
+        let result = all_paths(&projection, "A", "X");
+
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            GraphError::NodeNotFound(id) => assert_eq!(id, "X"),
+            _ => panic!("Expected NodeNotFound error"),
+        }
+    }
+
+    #[test]
+    fn test_all_paths_complex_graph() {
+        let projection = create_complex_graph();
+        let result = all_paths(&projection, "A", "F").unwrap();
+
+        // Multiple paths from A to F
+        // A -> B -> C -> F
+        // A -> B -> E -> F
+        // A -> D -> E -> F
+        assert!(result.len() >= 3);
+
+        // All paths should start with A and end with F
+        for path in &result {
+            assert_eq!(path[0], "A");
+            assert_eq!(*path.last().unwrap(), "F");
+        }
+    }
+
+    #[test]
+    fn test_all_paths_adjacent_nodes() {
+        let projection = create_linear_graph();
+        let result = all_paths(&projection, "A", "B").unwrap();
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0], vec!["A", "B"]);
     }
 }
