@@ -144,15 +144,47 @@ impl SpaceTopology {
     }
 
     /// Check if topology requires genus increase based on edge count
+    ///
+    /// Uses two bounds from graph theory:
+    /// - General planar bound: E <= 3V - 6 (catches K5)
+    /// - Bipartite planar bound: E <= 2V - 4 (catches K3,3)
+    ///
+    /// The function uses edge density heuristics to determine which bound applies.
     pub fn requires_genus_increase(node_count: usize, edge_count: usize) -> bool {
-        // Euler's formula for planar graphs: V - E + F = 2
-        // Maximum edges in planar graph: E <= 3V - 6
-        let max_planar_edges = if node_count >= 3 {
-            3 * node_count - 6
-        } else {
-            node_count
-        };
-        edge_count > max_planar_edges
+        if node_count < 3 {
+            return false;
+        }
+
+        // General bound: E <= 3V - 6 (for any planar graph)
+        let max_general_edges = 3 * node_count - 6;
+
+        // First check: if exceeds general bound, definitely non-planar
+        if edge_count > max_general_edges {
+            return true;
+        }
+
+        // Bipartite bound: E <= 2V - 4 (for triangle-free graphs like K_{m,n})
+        let max_bipartite_edges = 2 * node_count - 4;
+
+        // Complete graph K_n has n(n-1)/2 edges
+        let complete_graph_edges = node_count * (node_count - 1) / 2;
+
+        // Complete bipartite K_{n/2, n/2} has (n/2)^2 edges (balanced case)
+        let half = node_count / 2;
+        let other_half = node_count - half;
+        let complete_bipartite_edges = half * other_half;
+
+        // Heuristic: if edge count matches complete bipartite pattern better than
+        // complete graph pattern, apply the bipartite bound
+        let dist_to_complete = (edge_count as isize - complete_graph_edges as isize).unsigned_abs();
+        let dist_to_bipartite = (edge_count as isize - complete_bipartite_edges as isize).unsigned_abs();
+
+        // If closer to bipartite pattern and exceeds bipartite bound, non-planar
+        if dist_to_bipartite < dist_to_complete && edge_count > max_bipartite_edges {
+            return true;
+        }
+
+        false
     }
 
     /// Compute Euler characteristic for the topology
