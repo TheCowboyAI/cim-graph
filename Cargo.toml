@@ -48,7 +48,7 @@ serde_json = "1.0"
 petgraph = "0.8"
 
 # Mathematical operations for conceptual spaces
-nalgebra = { version = "0.33", features = ["serde-serialize"] }
+nalgebra = { version = "0.34", features = ["serde-serialize"] }
 num-traits = "0.2"
 anyhow = "1.0"
 
