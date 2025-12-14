@@ -10,8 +10,10 @@
 //! - **Context Graphs**: Domain-Driven Design bounded contexts
 //! - **Workflow Graphs**: State machines and process flows
 //! - **Concept Graphs**: Semantic reasoning and knowledge representation
-//! - **Conceptual Spaces**: Topological spaces with Voronoi tessellation
 //! - **Composed Graphs**: Multi-domain graph compositions
+//!
+//! For conceptual spaces (topological spaces, Voronoi tessellation), use `cim-domain-spaces`
+//! which is re-exported as `cim_graph::conceptual_space`.
 //!
 //! ## Features
 //!
@@ -113,11 +115,12 @@ pub mod optimization;
 /// Event analytics and metrics
 pub mod analytics;
 
-/// Conceptual spaces with topological structure
-pub mod conceptual_space;
-
 /// Functors and Kan extensions for domain mappings
 pub mod functors;
+
+// Re-export conceptual spaces from cim-domain-spaces
+// This provides backwards compatibility while using the authoritative implementation
+pub use cim_domain_spaces as conceptual_space;
 
 // Re-exports
 pub use crate::core::{Node, Edge, EventHandler, GraphEvent as CoreGraphEvent, GraphProjection};
