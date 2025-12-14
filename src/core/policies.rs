@@ -369,6 +369,75 @@ mod tests {
     use super::*;
     use crate::events::GenericPayload;
 
+    // ========================================================================
+    // PolicyMetrics tests
+    // ========================================================================
+
+    #[test]
+    fn test_policy_metrics_default() {
+        let metrics = PolicyMetrics::default();
+        assert_eq!(metrics.cids_generated, 0);
+        assert_eq!(metrics.projections_updated, 0);
+        assert_eq!(metrics.chains_validated, 0);
+        assert_eq!(metrics.errors_caught, 0);
+        assert_eq!(metrics.events_replayed, 0);
+    }
+
+    #[test]
+    fn test_policy_metrics_clone() {
+        let metrics = PolicyMetrics {
+            cids_generated: 5,
+            projections_updated: 3,
+            chains_validated: 2,
+            errors_caught: 1,
+            events_replayed: 4,
+        };
+
+        let cloned = metrics.clone();
+        assert_eq!(metrics.cids_generated, cloned.cids_generated);
+        assert_eq!(metrics.errors_caught, cloned.errors_caught);
+    }
+
+    // ========================================================================
+    // PolicyAction tests
+    // ========================================================================
+
+    #[test]
+    fn test_policy_action_generate_cid() {
+        let action = PolicyAction::GenerateCid {
+            event_id: Uuid::new_v4(),
+            cid: Cid::new("QmTest"),
+        };
+        let debug_str = format!("{:?}", action);
+        assert!(debug_str.contains("GenerateCid"));
+    }
+
+    #[test]
+    fn test_policy_action_update_projection() {
+        let action = PolicyAction::UpdateProjection {
+            aggregate_id: Uuid::new_v4(),
+        };
+        let debug_str = format!("{:?}", action);
+        assert!(debug_str.contains("UpdateProjection"));
+    }
+
+    #[test]
+    fn test_policy_action_clone() {
+        let id = Uuid::new_v4();
+        let action = PolicyAction::VerifyChain { aggregate_id: id };
+        let cloned = action.clone();
+        match cloned {
+            PolicyAction::VerifyChain { aggregate_id } => {
+                assert_eq!(aggregate_id, id);
+            }
+            _ => panic!("Wrong action type"),
+        }
+    }
+
+    // ========================================================================
+    // CidGenerationPolicy tests
+    // ========================================================================
+
     #[test]
     fn test_cid_generation_policy() {
         let policy = CidGenerationPolicy;
@@ -382,9 +451,9 @@ mod tests {
                 data: serde_json::json!({ "test": true }),
             }),
         };
-        
+
         assert!(policy.should_trigger(&event));
-        
+
         let mut state_machine = GraphStateMachine::new();
         let mut ipld_chains = HashMap::new();
         let mut context = PolicyContext {
@@ -392,12 +461,42 @@ mod tests {
             ipld_chains: &mut ipld_chains,
             metrics: PolicyMetrics::default(),
         };
-        
+
         let actions = policy.execute(&event, &mut context).unwrap();
         assert_eq!(actions.len(), 1);
         assert!(matches!(actions[0], PolicyAction::GenerateCid { .. }));
         assert_eq!(context.metrics.cids_generated, 1);
     }
+
+    #[test]
+    fn test_cid_generation_policy_name() {
+        let policy = CidGenerationPolicy;
+        assert_eq!(policy.name(), "CID Generation Policy");
+    }
+
+    #[test]
+    fn test_cid_generation_policy_triggers_for_all_events() {
+        let policy = CidGenerationPolicy;
+
+        let ipld_event = GraphEvent {
+            event_id: Uuid::new_v4(),
+            aggregate_id: Uuid::new_v4(),
+            correlation_id: Uuid::new_v4(),
+            causation_id: None,
+            payload: EventPayload::Ipld(crate::events::IpldPayload::CidAdded {
+                cid: "QmTest".to_string(),
+                codec: "dag-cbor".to_string(),
+                size: 100,
+                data: serde_json::json!({}),
+            }),
+        };
+
+        assert!(policy.should_trigger(&ipld_event));
+    }
+
+    // ========================================================================
+    // ProjectionUpdatePolicy tests
+    // ========================================================================
 
     #[test]
     fn test_projection_update_policy() {
@@ -412,9 +511,9 @@ mod tests {
                 data: serde_json::json!({ "node_id": "n1" }),
             }),
         };
-        
+
         assert!(policy.should_trigger(&event));
-        
+
         let mut state_machine = GraphStateMachine::new();
         let mut ipld_chains = HashMap::new();
         let mut context = PolicyContext {
@@ -422,13 +521,203 @@ mod tests {
             ipld_chains: &mut ipld_chains,
             metrics: PolicyMetrics::default(),
         };
-        
+
         let actions = policy.execute(&event, &mut context).unwrap();
         assert_eq!(actions.len(), 2);
         assert!(matches!(actions[0], PolicyAction::UpdateProjection { .. }));
         assert!(matches!(actions[1], PolicyAction::InvalidateCache { .. }));
         assert_eq!(context.metrics.projections_updated, 1);
     }
+
+    #[test]
+    fn test_projection_update_policy_name() {
+        let policy = ProjectionUpdatePolicy;
+        assert_eq!(policy.name(), "Projection Update Policy");
+    }
+
+    // ========================================================================
+    // StateValidationPolicy tests
+    // ========================================================================
+
+    #[test]
+    fn test_state_validation_policy_triggers_for_state_events() {
+        let policy = StateValidationPolicy;
+
+        let state_event = GraphEvent {
+            event_id: Uuid::new_v4(),
+            aggregate_id: Uuid::new_v4(),
+            correlation_id: Uuid::new_v4(),
+            causation_id: None,
+            payload: EventPayload::Generic(GenericPayload {
+                event_type: "StateChanged".to_string(),
+                data: serde_json::json!({}),
+            }),
+        };
+        assert!(policy.should_trigger(&state_event));
+
+        let transition_event = GraphEvent {
+            event_id: Uuid::new_v4(),
+            aggregate_id: Uuid::new_v4(),
+            correlation_id: Uuid::new_v4(),
+            causation_id: None,
+            payload: EventPayload::Generic(GenericPayload {
+                event_type: "Transitioned".to_string(),
+                data: serde_json::json!({}),
+            }),
+        };
+        assert!(policy.should_trigger(&transition_event));
+    }
+
+    #[test]
+    fn test_state_validation_policy_does_not_trigger_for_other_events() {
+        let policy = StateValidationPolicy;
+
+        let other_event = GraphEvent {
+            event_id: Uuid::new_v4(),
+            aggregate_id: Uuid::new_v4(),
+            correlation_id: Uuid::new_v4(),
+            causation_id: None,
+            payload: EventPayload::Generic(GenericPayload {
+                event_type: "NodeAdded".to_string(),
+                data: serde_json::json!({}),
+            }),
+        };
+        assert!(!policy.should_trigger(&other_event));
+    }
+
+    #[test]
+    fn test_state_validation_policy_name() {
+        let policy = StateValidationPolicy;
+        assert_eq!(policy.name(), "State Validation Policy");
+    }
+
+    // ========================================================================
+    // ChainValidationPolicy tests
+    // ========================================================================
+
+    #[test]
+    fn test_chain_validation_policy_triggers_for_ipld() {
+        let policy = ChainValidationPolicy;
+
+        let ipld_event = GraphEvent {
+            event_id: Uuid::new_v4(),
+            aggregate_id: Uuid::new_v4(),
+            correlation_id: Uuid::new_v4(),
+            causation_id: None,
+            payload: EventPayload::Ipld(crate::events::IpldPayload::CidAdded {
+                cid: "QmTest".to_string(),
+                codec: "dag-cbor".to_string(),
+                size: 100,
+                data: serde_json::json!({}),
+            }),
+        };
+        assert!(policy.should_trigger(&ipld_event));
+    }
+
+    #[test]
+    fn test_chain_validation_policy_triggers_for_chain_modified() {
+        let policy = ChainValidationPolicy;
+
+        let chain_event = GraphEvent {
+            event_id: Uuid::new_v4(),
+            aggregate_id: Uuid::new_v4(),
+            correlation_id: Uuid::new_v4(),
+            causation_id: None,
+            payload: EventPayload::Generic(GenericPayload {
+                event_type: "ChainModified".to_string(),
+                data: serde_json::json!({}),
+            }),
+        };
+        assert!(policy.should_trigger(&chain_event));
+    }
+
+    #[test]
+    fn test_chain_validation_policy_name() {
+        let policy = ChainValidationPolicy;
+        assert_eq!(policy.name(), "Chain Validation Policy");
+    }
+
+    // ========================================================================
+    // CollaborationPolicy tests
+    // ========================================================================
+
+    #[test]
+    fn test_collaboration_policy_triggers_for_subscription() {
+        let policy = CollaborationPolicy;
+
+        let sub_event = GraphEvent {
+            event_id: Uuid::new_v4(),
+            aggregate_id: Uuid::new_v4(),
+            correlation_id: Uuid::new_v4(),
+            causation_id: None,
+            payload: EventPayload::Generic(GenericPayload {
+                event_type: "ClientSubscribed".to_string(),
+                data: serde_json::json!({ "last_sequence": 42 }),
+            }),
+        };
+        assert!(policy.should_trigger(&sub_event));
+    }
+
+    #[test]
+    fn test_collaboration_policy_does_not_trigger_for_other_events() {
+        let policy = CollaborationPolicy;
+
+        let other_event = GraphEvent {
+            event_id: Uuid::new_v4(),
+            aggregate_id: Uuid::new_v4(),
+            correlation_id: Uuid::new_v4(),
+            causation_id: None,
+            payload: EventPayload::Generic(GenericPayload {
+                event_type: "NodeAdded".to_string(),
+                data: serde_json::json!({}),
+            }),
+        };
+        assert!(!policy.should_trigger(&other_event));
+    }
+
+    #[test]
+    fn test_collaboration_policy_name() {
+        let policy = CollaborationPolicy;
+        assert_eq!(policy.name(), "Collaboration Policy");
+    }
+
+    #[test]
+    fn test_collaboration_policy_extracts_sequence() {
+        let policy = CollaborationPolicy;
+        let aggregate_id = Uuid::new_v4();
+
+        let event = GraphEvent {
+            event_id: Uuid::new_v4(),
+            aggregate_id,
+            correlation_id: Uuid::new_v4(),
+            causation_id: None,
+            payload: EventPayload::Generic(GenericPayload {
+                event_type: "ClientSubscribed".to_string(),
+                data: serde_json::json!({ "last_sequence": 100 }),
+            }),
+        };
+
+        let mut state_machine = GraphStateMachine::new();
+        let mut ipld_chains = HashMap::new();
+        let mut context = PolicyContext {
+            state_machine: &mut state_machine,
+            ipld_chains: &mut ipld_chains,
+            metrics: PolicyMetrics::default(),
+        };
+
+        let actions = policy.execute(&event, &mut context).unwrap();
+        assert_eq!(actions.len(), 1);
+        match &actions[0] {
+            PolicyAction::ReplayEvents { from_sequence, .. } => {
+                assert_eq!(*from_sequence, 100);
+            }
+            _ => panic!("Expected ReplayEvents action"),
+        }
+    }
+
+    // ========================================================================
+    // PolicyEngine tests
+    // ========================================================================
 
     #[test]
     fn test_policy_engine() {
@@ -443,7 +732,7 @@ mod tests {
                 data: serde_json::json!({ "test": true }),
             }),
         };
-        
+
         let mut state_machine = GraphStateMachine::new();
         let mut ipld_chains = HashMap::new();
         let mut context = PolicyContext {
@@ -451,12 +740,73 @@ mod tests {
             ipld_chains: &mut ipld_chains,
             metrics: PolicyMetrics::default(),
         };
-        
+
         let actions = engine.execute_policies(&event, &mut context).unwrap();
-        
+
         // Should have actions from CID generation and projection update policies
         assert!(actions.len() >= 2);
         assert!(context.metrics.cids_generated > 0);
         assert!(context.metrics.projections_updated > 0);
+    }
+
+    #[test]
+    fn test_policy_engine_new_has_default_policies() {
+        let engine = PolicyEngine::new();
+        let metrics = engine.get_metrics();
+        assert_eq!(metrics.cids_generated, 0);
+        assert_eq!(metrics.projections_updated, 0);
+    }
+
+    #[test]
+    fn test_policy_engine_debug() {
+        let engine = PolicyEngine::new();
+        let debug_str = format!("{:?}", engine);
+        assert!(debug_str.contains("PolicyEngine"));
+        assert!(debug_str.contains("policies"));
+    }
+
+    #[test]
+    fn test_policy_context_debug() {
+        let mut state_machine = GraphStateMachine::new();
+        let mut ipld_chains = HashMap::new();
+        let context = PolicyContext {
+            state_machine: &mut state_machine,
+            ipld_chains: &mut ipld_chains,
+            metrics: PolicyMetrics::default(),
+        };
+
+        let debug_str = format!("{:?}", context);
+        assert!(debug_str.contains("PolicyContext"));
+    }
+
+    // ========================================================================
+    // process_event_policies tests
+    // ========================================================================
+
+    #[test]
+    fn test_process_event_policies() {
+        let mut engine = PolicyEngine::new();
+
+        let event = GraphEvent {
+            event_id: Uuid::new_v4(),
+            aggregate_id: Uuid::new_v4(),
+            correlation_id: Uuid::new_v4(),
+            causation_id: None,
+            payload: EventPayload::Generic(GenericPayload {
+                event_type: "TestEvent".to_string(),
+                data: serde_json::json!({}),
+            }),
+        };
+
+        let mut state_machine = GraphStateMachine::new();
+        let mut ipld_chains = HashMap::new();
+        let mut context = PolicyContext {
+            state_machine: &mut state_machine,
+            ipld_chains: &mut ipld_chains,
+            metrics: PolicyMetrics::default(),
+        };
+
+        let actions = process_event_policies(&event, &mut engine, &mut context).unwrap();
+        assert!(!actions.is_empty());
     }
 }

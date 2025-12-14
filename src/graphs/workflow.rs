@@ -386,28 +386,423 @@ impl WorkflowProjection {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::GraphType;
+    use crate::core::projection_engine::GenericGraphProjection;
+    use uuid::Uuid;
+
+    // ========================================================================
+    // WorkflowState tests
+    // ========================================================================
+
+    #[test]
+    fn test_workflow_state_variants() {
+        let draft = WorkflowState::Draft;
+        let published = WorkflowState::Published;
+        let running = WorkflowState::Running { current_state: "processing".to_string() };
+        let completed = WorkflowState::Completed;
+        let failed = WorkflowState::Failed { error: "timeout".to_string() };
+
+        // Test debug output
+        assert!(format!("{:?}", draft).contains("Draft"));
+        assert!(format!("{:?}", published).contains("Published"));
+        assert!(format!("{:?}", running).contains("processing"));
+        assert!(format!("{:?}", completed).contains("Completed"));
+        assert!(format!("{:?}", failed).contains("timeout"));
+    }
+
+    #[test]
+    fn test_workflow_state_equality() {
+        let s1 = WorkflowState::Draft;
+        let s2 = WorkflowState::Draft;
+        let s3 = WorkflowState::Published;
+
+        assert_eq!(s1, s2);
+        assert_ne!(s1, s3);
+    }
+
+    #[test]
+    fn test_workflow_state_running_equality() {
+        let r1 = WorkflowState::Running { current_state: "a".to_string() };
+        let r2 = WorkflowState::Running { current_state: "a".to_string() };
+        let r3 = WorkflowState::Running { current_state: "b".to_string() };
+
+        assert_eq!(r1, r2);
+        assert_ne!(r1, r3);
+    }
+
+    // ========================================================================
+    // WorkflowNodeType tests
+    // ========================================================================
+
+    #[test]
+    fn test_workflow_node_type_variants() {
+        let start = WorkflowNodeType::Start;
+        let end = WorkflowNodeType::End;
+        let state = WorkflowNodeType::State { name: "active".to_string() };
+        let decision = WorkflowNodeType::Decision { condition: "x > 5".to_string() };
+        let action = WorkflowNodeType::Action { operation: "send_email".to_string() };
+        let wait = WorkflowNodeType::Wait { event_type: "user_response".to_string() };
+        let error = WorkflowNodeType::Error { message: "invalid state".to_string() };
+
+        // Test that all variants can be cloned
+        let _ = start.clone();
+        let _ = end.clone();
+        let _ = state.clone();
+        let _ = decision.clone();
+        let _ = action.clone();
+        let _ = wait.clone();
+        let _ = error.clone();
+    }
+
+    #[test]
+    fn test_workflow_node_type_equality() {
+        let s1 = WorkflowNodeType::State { name: "active".to_string() };
+        let s2 = WorkflowNodeType::State { name: "active".to_string() };
+        let s3 = WorkflowNodeType::State { name: "inactive".to_string() };
+
+        assert_eq!(s1, s2);
+        assert_ne!(s1, s3);
+    }
+
+    // ========================================================================
+    // WorkflowNode tests
+    // ========================================================================
 
     #[test]
     fn test_workflow_node_creation() {
         let start = WorkflowNode::start("start");
         assert!(matches!(start.node_type, WorkflowNodeType::Start));
-        
+
         let state = WorkflowNode::state("s1", "Processing");
         assert!(matches!(state.node_type, WorkflowNodeType::State { name } if name == "Processing"));
-        
+
         let decision = WorkflowNode::decision("d1", "amount > 100");
         assert!(matches!(decision.node_type, WorkflowNodeType::Decision { condition } if condition == "amount > 100"));
     }
 
     #[test]
+    fn test_workflow_node_end() {
+        let end = WorkflowNode::end("finish");
+        assert!(matches!(end.node_type, WorkflowNodeType::End));
+        assert_eq!(end.id, "finish");
+    }
+
+    #[test]
+    fn test_workflow_node_action() {
+        let action = WorkflowNode::action("send_notification", "email_send");
+        assert!(matches!(action.node_type, WorkflowNodeType::Action { operation } if operation == "email_send"));
+        assert_eq!(action.id, "send_notification");
+    }
+
+    #[test]
+    fn test_workflow_node_wait() {
+        let wait = WorkflowNode::wait("await_approval", "approval_received");
+        assert!(matches!(wait.node_type, WorkflowNodeType::Wait { event_type } if event_type == "approval_received"));
+    }
+
+    #[test]
+    fn test_workflow_node_error() {
+        let error = WorkflowNode::error("error_state", "Processing failed");
+        assert!(matches!(error.node_type, WorkflowNodeType::Error { message } if message == "Processing failed"));
+    }
+
+    #[test]
+    fn test_workflow_node_default_state() {
+        let node = WorkflowNode::start("s");
+        assert_eq!(node.workflow_state, WorkflowState::Draft);
+        assert!(node.metadata.is_empty());
+    }
+
+    #[test]
+    fn test_workflow_node_implements_node_trait() {
+        let node = WorkflowNode::state("test_node", "Testing");
+        assert_eq!(node.id(), "test_node");
+    }
+
+    // ========================================================================
+    // WorkflowEdgeType tests
+    // ========================================================================
+
+    #[test]
+    fn test_workflow_edge_type_variants() {
+        let trans = WorkflowEdgeType::Transition;
+        let cond = WorkflowEdgeType::ConditionalTransition { condition: "approved".to_string() };
+        let err = WorkflowEdgeType::ErrorTransition;
+        let timeout = WorkflowEdgeType::TimeoutTransition { timeout_ms: 5000 };
+        let event = WorkflowEdgeType::EventTransition { event_type: "payment".to_string() };
+
+        // All should be cloneable
+        let _ = trans.clone();
+        let _ = cond.clone();
+        let _ = err.clone();
+        let _ = timeout.clone();
+        let _ = event.clone();
+    }
+
+    // ========================================================================
+    // WorkflowEdge tests
+    // ========================================================================
+
+    #[test]
     fn test_workflow_edge_creation() {
         let transition = WorkflowEdge::transition("t1", "s1", "s2");
         assert!(matches!(transition.edge_type, WorkflowEdgeType::Transition));
-        
+
         let conditional = WorkflowEdge::conditional("c1", "d1", "s2", "approved");
         assert!(matches!(conditional.edge_type, WorkflowEdgeType::ConditionalTransition { condition } if condition == "approved"));
-        
+
         let event = WorkflowEdge::event_triggered("e1", "wait", "process", "payment_received");
         assert!(matches!(event.edge_type, WorkflowEdgeType::EventTransition { event_type } if event_type == "payment_received"));
+    }
+
+    #[test]
+    fn test_workflow_edge_with_trigger() {
+        let edge = WorkflowEdge::transition("t1", "a", "b")
+            .with_trigger("manual_trigger");
+
+        assert_eq!(edge.trigger, Some("manual_trigger".to_string()));
+    }
+
+    #[test]
+    fn test_workflow_edge_implements_edge_trait() {
+        let edge = WorkflowEdge::transition("e1", "source", "target");
+        assert_eq!(edge.id(), "e1");
+        assert_eq!(edge.source(), "source");
+        assert_eq!(edge.target(), "target");
+    }
+
+    #[test]
+    fn test_workflow_edge_metadata() {
+        let mut edge = WorkflowEdge::new("e1", "a", "b", WorkflowEdgeType::Transition);
+        assert!(edge.metadata.is_empty());
+
+        edge.metadata.insert("priority".to_string(), serde_json::json!(1));
+        assert_eq!(edge.metadata.get("priority"), Some(&serde_json::json!(1)));
+    }
+
+    // ========================================================================
+    // WorkflowProjection method tests
+    // ========================================================================
+
+    fn create_simple_workflow_projection() -> WorkflowProjection {
+        let mut projection: WorkflowProjection = GenericGraphProjection::new(Uuid::new_v4(), GraphType::Generic);
+
+        // Add nodes
+        let start = WorkflowNode::start("start");
+        let process = WorkflowNode::state("process", "Processing");
+        let decision = WorkflowNode::decision("check", "amount > 100");
+        let approve = WorkflowNode::state("approve", "Approved");
+        let reject = WorkflowNode::state("reject", "Rejected");
+        let end = WorkflowNode::end("end");
+
+        projection.nodes.insert("start".to_string(), start);
+        projection.nodes.insert("process".to_string(), process);
+        projection.nodes.insert("check".to_string(), decision);
+        projection.nodes.insert("approve".to_string(), approve);
+        projection.nodes.insert("reject".to_string(), reject);
+        projection.nodes.insert("end".to_string(), end);
+
+        // Add edges
+        let e1 = WorkflowEdge::transition("e1", "start", "process");
+        let e2 = WorkflowEdge::transition("e2", "process", "check");
+        let e3 = WorkflowEdge::conditional("e3", "check", "approve", "true");
+        let e4 = WorkflowEdge::conditional("e4", "check", "reject", "false");
+        let e5 = WorkflowEdge::transition("e5", "approve", "end");
+        let e6 = WorkflowEdge::transition("e6", "reject", "end");
+
+        projection.edges.insert("e1".to_string(), e1);
+        projection.edges.insert("e2".to_string(), e2);
+        projection.edges.insert("e3".to_string(), e3);
+        projection.edges.insert("e4".to_string(), e4);
+        projection.edges.insert("e5".to_string(), e5);
+        projection.edges.insert("e6".to_string(), e6);
+
+        // Setup adjacency
+        projection.adjacency.insert("start".to_string(), vec!["process".to_string()]);
+        projection.adjacency.insert("process".to_string(), vec!["check".to_string()]);
+        projection.adjacency.insert("check".to_string(), vec!["approve".to_string(), "reject".to_string()]);
+        projection.adjacency.insert("approve".to_string(), vec!["end".to_string()]);
+        projection.adjacency.insert("reject".to_string(), vec!["end".to_string()]);
+        projection.adjacency.insert("end".to_string(), vec![]);
+
+        projection
+    }
+
+    #[test]
+    fn test_get_states() {
+        let projection = create_simple_workflow_projection();
+        let states = projection.get_states();
+
+        // Should have: process, approve, reject (not start, end, or decision)
+        assert_eq!(states.len(), 3);
+
+        let state_ids: Vec<&str> = states.iter().map(|s| s.id.as_str()).collect();
+        assert!(state_ids.contains(&"process"));
+        assert!(state_ids.contains(&"approve"));
+        assert!(state_ids.contains(&"reject"));
+    }
+
+    #[test]
+    fn test_get_start_node() {
+        let projection = create_simple_workflow_projection();
+        let start = projection.get_start_node();
+
+        assert!(start.is_some());
+        assert_eq!(start.unwrap().id, "start");
+    }
+
+    #[test]
+    fn test_get_end_nodes() {
+        let projection = create_simple_workflow_projection();
+        let ends = projection.get_end_nodes();
+
+        assert_eq!(ends.len(), 1);
+        assert_eq!(ends[0].id, "end");
+    }
+
+    #[test]
+    fn test_get_decision_nodes() {
+        let projection = create_simple_workflow_projection();
+        let decisions = projection.get_decision_nodes();
+
+        assert_eq!(decisions.len(), 1);
+        assert_eq!(decisions[0].id, "check");
+    }
+
+    #[test]
+    fn test_get_transitions_from() {
+        let projection = create_simple_workflow_projection();
+
+        let from_check = projection.get_transitions_from("check");
+        assert_eq!(from_check.len(), 2);
+
+        let from_start = projection.get_transitions_from("start");
+        assert_eq!(from_start.len(), 1);
+
+        let from_end = projection.get_transitions_from("end");
+        assert_eq!(from_end.len(), 0);
+    }
+
+    #[test]
+    fn test_get_transitions_to() {
+        let projection = create_simple_workflow_projection();
+
+        let to_end = projection.get_transitions_to("end");
+        assert_eq!(to_end.len(), 2);
+
+        let to_start = projection.get_transitions_to("start");
+        assert_eq!(to_start.len(), 0);
+    }
+
+    #[test]
+    fn test_find_path() {
+        let projection = create_simple_workflow_projection();
+
+        // Find path from start to end
+        let path = projection.find_path("start", "end");
+        assert!(path.is_some());
+        let path = path.unwrap();
+        assert_eq!(path.first(), Some(&"start".to_string()));
+        assert_eq!(path.last(), Some(&"end".to_string()));
+
+        // Path should go through process and check
+        assert!(path.contains(&"process".to_string()));
+        assert!(path.contains(&"check".to_string()));
+    }
+
+    #[test]
+    fn test_find_path_no_path() {
+        let projection = create_simple_workflow_projection();
+
+        // No path from end back to start (directed graph)
+        let path = projection.find_path("end", "start");
+        assert!(path.is_none());
+    }
+
+    #[test]
+    fn test_find_path_same_node() {
+        let projection = create_simple_workflow_projection();
+
+        let path = projection.find_path("start", "start");
+        assert!(path.is_some());
+        assert_eq!(path.unwrap(), vec!["start".to_string()]);
+    }
+
+    #[test]
+    fn test_validate_success() {
+        let projection = create_simple_workflow_projection();
+        let result = projection.validate();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_missing_start() {
+        let mut projection: WorkflowProjection = GenericGraphProjection::new(Uuid::new_v4(), GraphType::Generic);
+        projection.nodes.insert("end".to_string(), WorkflowNode::end("end"));
+        projection.adjacency.insert("end".to_string(), vec![]);
+
+        let result = projection.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("start node"));
+    }
+
+    #[test]
+    fn test_validate_missing_end() {
+        let mut projection: WorkflowProjection = GenericGraphProjection::new(Uuid::new_v4(), GraphType::Generic);
+        projection.nodes.insert("start".to_string(), WorkflowNode::start("start"));
+        projection.adjacency.insert("start".to_string(), vec![]);
+
+        let result = projection.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("end node"));
+    }
+
+    #[test]
+    fn test_validate_unreachable_node() {
+        let mut projection: WorkflowProjection = GenericGraphProjection::new(Uuid::new_v4(), GraphType::Generic);
+
+        projection.nodes.insert("start".to_string(), WorkflowNode::start("start"));
+        projection.nodes.insert("end".to_string(), WorkflowNode::end("end"));
+        projection.nodes.insert("orphan".to_string(), WorkflowNode::state("orphan", "Orphan"));
+
+        projection.adjacency.insert("start".to_string(), vec!["end".to_string()]);
+        projection.adjacency.insert("end".to_string(), vec![]);
+        projection.adjacency.insert("orphan".to_string(), vec![]);
+
+        let result = projection.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("unreachable"));
+    }
+
+    #[test]
+    fn test_is_running() {
+        let mut projection = create_simple_workflow_projection();
+
+        // Initially not running
+        assert!(!projection.is_running());
+
+        // Change a node state to running
+        if let Some(node) = projection.nodes.get_mut("process") {
+            node.workflow_state = WorkflowState::Running { current_state: "process".to_string() };
+        }
+
+        assert!(projection.is_running());
+    }
+
+    #[test]
+    fn test_get_current_state() {
+        let mut projection = create_simple_workflow_projection();
+
+        // Initially no running state
+        assert!(projection.get_current_state().is_none());
+
+        // Set a node to running
+        if let Some(node) = projection.nodes.get_mut("approve") {
+            node.workflow_state = WorkflowState::Running { current_state: "approve".to_string() };
+        }
+
+        let current = projection.get_current_state();
+        assert!(current.is_some());
+        assert_eq!(current.unwrap().id, "approve");
     }
 }

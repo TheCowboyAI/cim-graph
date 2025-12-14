@@ -441,4 +441,250 @@ mod tests {
         let pos_d = result.iter().position(|x| x == "D").unwrap();
         assert!(pos_c < pos_d);
     }
+
+    // ========== Additional Coverage Tests ==========
+
+    #[test]
+    fn test_bfs_empty_graph() {
+        let projection = create_empty_projection();
+        let result = bfs(&projection, "A");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_dfs_empty_graph() {
+        let projection = create_empty_projection();
+        let result = dfs(&projection, "A");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_bfs_leaf_node() {
+        let projection = create_linear_graph();
+        // Starting from end node C
+        let result = bfs(&projection, "C").unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0], "C");
+    }
+
+    #[test]
+    fn test_dfs_leaf_node() {
+        let projection = create_linear_graph();
+        // Starting from end node C
+        let result = dfs(&projection, "C").unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0], "C");
+    }
+
+    #[test]
+    fn test_bfs_traversal_order() {
+        // Test that BFS visits nodes in level order
+        // Diamond graph: A -> B, A -> C, B -> D, C -> D
+        let projection = create_branching_graph();
+        let result = bfs(&projection, "A").unwrap();
+
+        assert_eq!(result.len(), 4);
+        assert_eq!(result[0], "A"); // Level 0
+        // B and C at level 1 (order depends on adjacency)
+        assert!(result[1] == "B" || result[1] == "C");
+        assert!(result[2] == "B" || result[2] == "C");
+        assert_eq!(result[3], "D"); // Level 2
+    }
+
+    #[test]
+    fn test_dfs_traversal_order() {
+        // DFS goes deep first
+        let projection = create_linear_graph();
+        let result = dfs(&projection, "A").unwrap();
+
+        // In a linear graph, DFS and BFS produce same result
+        assert_eq!(result, vec!["A", "B", "C"]);
+    }
+
+    #[test]
+    fn test_bfs_with_cycle() {
+        // Create a graph with a cycle: A -> B -> C -> A
+        let mut projection = create_empty_projection();
+
+        for id in ["A", "B", "C"] {
+            let node = WorkflowNode::new(id, WorkflowNodeType::Start);
+            projection.nodes.insert(id.to_string(), node);
+        }
+
+        projection.adjacency.insert("A".to_string(), vec!["B".to_string()]);
+        projection.adjacency.insert("B".to_string(), vec!["C".to_string()]);
+        projection.adjacency.insert("C".to_string(), vec!["A".to_string()]);
+
+        let result = bfs(&projection, "A").unwrap();
+
+        // Should visit each node exactly once despite cycle
+        assert_eq!(result.len(), 3);
+        let mut sorted = result.clone();
+        sorted.sort();
+        assert_eq!(sorted, vec!["A", "B", "C"]);
+    }
+
+    #[test]
+    fn test_dfs_with_cycle() {
+        // Create a graph with a cycle
+        let mut projection = create_empty_projection();
+
+        for id in ["A", "B", "C"] {
+            let node = WorkflowNode::new(id, WorkflowNodeType::Start);
+            projection.nodes.insert(id.to_string(), node);
+        }
+
+        projection.adjacency.insert("A".to_string(), vec!["B".to_string()]);
+        projection.adjacency.insert("B".to_string(), vec!["C".to_string()]);
+        projection.adjacency.insert("C".to_string(), vec!["A".to_string()]);
+
+        let result = dfs(&projection, "A").unwrap();
+
+        // Should visit each node exactly once
+        assert_eq!(result.len(), 3);
+    }
+
+    #[test]
+    fn test_topological_sort_with_cycle_fails() {
+        // Create a graph with a cycle: A -> B -> C -> A
+        let mut projection = create_empty_projection();
+
+        for id in ["A", "B", "C"] {
+            let node = WorkflowNode::new(id, WorkflowNodeType::Start);
+            projection.nodes.insert(id.to_string(), node);
+        }
+
+        projection.adjacency.insert("A".to_string(), vec!["B".to_string()]);
+        projection.adjacency.insert("B".to_string(), vec!["C".to_string()]);
+        projection.adjacency.insert("C".to_string(), vec!["A".to_string()]);
+
+        let result = topological_sort(&projection);
+        assert!(result.is_err());
+
+        match result.unwrap_err() {
+            crate::error::GraphError::InvalidOperation(msg) => {
+                assert!(msg.contains("cycles") || msg.contains("cycle"));
+            }
+            _ => panic!("Expected InvalidOperation error"),
+        }
+    }
+
+    #[test]
+    fn test_topological_sort_complex_dag() {
+        // Create a more complex DAG:
+        //     B -> D
+        //   /   \
+        // A       F
+        //   \   /
+        //     C -> E
+        let mut projection = create_empty_projection();
+
+        for id in ["A", "B", "C", "D", "E", "F"] {
+            let node = WorkflowNode::new(id, WorkflowNodeType::Start);
+            projection.nodes.insert(id.to_string(), node);
+        }
+
+        projection.adjacency.insert("A".to_string(), vec!["B".to_string(), "C".to_string()]);
+        projection.adjacency.insert("B".to_string(), vec!["D".to_string(), "F".to_string()]);
+        projection.adjacency.insert("C".to_string(), vec!["E".to_string(), "F".to_string()]);
+        projection.adjacency.insert("D".to_string(), vec![]);
+        projection.adjacency.insert("E".to_string(), vec![]);
+        projection.adjacency.insert("F".to_string(), vec![]);
+
+        let result = topological_sort(&projection).unwrap();
+        assert_eq!(result.len(), 6);
+
+        // A must come before B and C
+        let pos_a = result.iter().position(|x| x == "A").unwrap();
+        let pos_b = result.iter().position(|x| x == "B").unwrap();
+        let pos_c = result.iter().position(|x| x == "C").unwrap();
+        assert!(pos_a < pos_b);
+        assert!(pos_a < pos_c);
+
+        // B must come before D and F
+        let pos_d = result.iter().position(|x| x == "D").unwrap();
+        let pos_f = result.iter().position(|x| x == "F").unwrap();
+        assert!(pos_b < pos_d);
+        assert!(pos_b < pos_f);
+
+        // C must come before E and F
+        let pos_e = result.iter().position(|x| x == "E").unwrap();
+        assert!(pos_c < pos_e);
+        assert!(pos_c < pos_f);
+    }
+
+    #[test]
+    fn test_bfs_wide_graph() {
+        // A -> B, C, D, E, F (5 neighbors)
+        let mut projection = create_empty_projection();
+
+        for id in ["A", "B", "C", "D", "E", "F"] {
+            let node = WorkflowNode::new(id, WorkflowNodeType::Start);
+            projection.nodes.insert(id.to_string(), node);
+        }
+
+        projection.adjacency.insert("A".to_string(),
+            vec!["B".to_string(), "C".to_string(), "D".to_string(), "E".to_string(), "F".to_string()]);
+        projection.adjacency.insert("B".to_string(), vec![]);
+        projection.adjacency.insert("C".to_string(), vec![]);
+        projection.adjacency.insert("D".to_string(), vec![]);
+        projection.adjacency.insert("E".to_string(), vec![]);
+        projection.adjacency.insert("F".to_string(), vec![]);
+
+        let result = bfs(&projection, "A").unwrap();
+        assert_eq!(result.len(), 6);
+        assert_eq!(result[0], "A");
+    }
+
+    #[test]
+    fn test_dfs_deep_graph() {
+        // A -> B -> C -> D -> E -> F (deep chain)
+        let ids = vec!["A", "B", "C", "D", "E", "F"];
+        let mut projection = create_empty_projection();
+
+        for id in &ids {
+            let node = WorkflowNode::new(*id, WorkflowNodeType::Start);
+            projection.nodes.insert(id.to_string(), node);
+        }
+
+        for i in 0..ids.len() - 1 {
+            projection.adjacency.insert(ids[i].to_string(), vec![ids[i + 1].to_string()]);
+        }
+        projection.adjacency.insert("F".to_string(), vec![]);
+
+        let result = dfs(&projection, "A").unwrap();
+        assert_eq!(result, ids.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_topological_sort_parallel_chains() {
+        // Two parallel chains: A -> B -> C and D -> E -> F
+        let mut projection = create_empty_projection();
+
+        for id in ["A", "B", "C", "D", "E", "F"] {
+            let node = WorkflowNode::new(id, WorkflowNodeType::Start);
+            projection.nodes.insert(id.to_string(), node);
+        }
+
+        projection.adjacency.insert("A".to_string(), vec!["B".to_string()]);
+        projection.adjacency.insert("B".to_string(), vec!["C".to_string()]);
+        projection.adjacency.insert("C".to_string(), vec![]);
+        projection.adjacency.insert("D".to_string(), vec!["E".to_string()]);
+        projection.adjacency.insert("E".to_string(), vec!["F".to_string()]);
+        projection.adjacency.insert("F".to_string(), vec![]);
+
+        let result = topological_sort(&projection).unwrap();
+        assert_eq!(result.len(), 6);
+
+        // Verify ordering within each chain
+        let pos_a = result.iter().position(|x| x == "A").unwrap();
+        let pos_b = result.iter().position(|x| x == "B").unwrap();
+        let pos_c = result.iter().position(|x| x == "C").unwrap();
+        assert!(pos_a < pos_b && pos_b < pos_c);
+
+        let pos_d = result.iter().position(|x| x == "D").unwrap();
+        let pos_e = result.iter().position(|x| x == "E").unwrap();
+        let pos_f = result.iter().position(|x| x == "F").unwrap();
+        assert!(pos_d < pos_e && pos_e < pos_f);
+    }
 }

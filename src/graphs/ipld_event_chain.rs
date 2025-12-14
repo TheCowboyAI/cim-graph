@@ -278,12 +278,339 @@ pub enum IpldChainCommand {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
+    // ========================================================================
+    // Cid tests
+    // ========================================================================
+
+    #[test]
+    fn test_cid_new() {
+        let cid = Cid::new("QmTestCid123");
+        assert_eq!(cid.as_str(), "QmTestCid123");
+    }
+
+    #[test]
+    fn test_cid_display() {
+        let cid = Cid::new("QmDisplayTest");
+        assert_eq!(format!("{}", cid), "QmDisplayTest");
+    }
+
+    #[test]
+    fn test_cid_equality() {
+        let cid1 = Cid::new("QmSame");
+        let cid2 = Cid::new("QmSame");
+        let cid3 = Cid::new("QmDifferent");
+
+        assert_eq!(cid1, cid2);
+        assert_ne!(cid1, cid3);
+    }
+
+    #[test]
+    fn test_cid_hash() {
+        use std::collections::HashSet;
+
+        let mut set = HashSet::new();
+        set.insert(Cid::new("QmA"));
+        set.insert(Cid::new("QmB"));
+        set.insert(Cid::new("QmA")); // Duplicate
+
+        assert_eq!(set.len(), 2);
+    }
+
+    #[test]
+    fn test_cid_serialization() {
+        let cid = Cid::new("QmSerialize");
+        let json = serde_json::to_string(&cid).unwrap();
+        let deserialized: Cid = serde_json::from_str(&json).unwrap();
+        assert_eq!(cid, deserialized);
+    }
+
+    // ========================================================================
+    // CidChain tests
+    // ========================================================================
+
+    #[test]
+    fn test_cid_chain_new() {
+        let root = Cid::new("QmRoot");
+        let aggregate_id = Uuid::new_v4();
+        let chain = CidChain::new(root.clone(), aggregate_id);
+
+        assert_eq!(chain.root, root);
+        assert_eq!(chain.aggregate_id, aggregate_id);
+        assert_eq!(chain.length, 0);
+        assert!(chain.cids.is_empty());
+    }
+
+    #[test]
+    fn test_cid_chain_add_event() {
+        let root = Cid::new("QmRoot");
+        let aggregate_id = Uuid::new_v4();
+        let mut chain = CidChain::new(root, aggregate_id);
+
+        let cid1 = Cid::new("QmEvent1");
+        let timestamp1 = Utc::now();
+        chain.add_event(0, cid1.clone(), timestamp1);
+
+        assert_eq!(chain.length, 1);
+        assert_eq!(chain.root, cid1);
+        assert_eq!(chain.cids.len(), 1);
+    }
+
+    #[test]
+    fn test_cid_chain_add_multiple_events() {
+        let root = Cid::new("QmRoot");
+        let aggregate_id = Uuid::new_v4();
+        let mut chain = CidChain::new(root, aggregate_id);
+
+        let cid1 = Cid::new("QmEvent1");
+        let cid2 = Cid::new("QmEvent2");
+        let cid3 = Cid::new("QmEvent3");
+
+        chain.add_event(0, cid1.clone(), Utc::now());
+        chain.add_event(1, cid2.clone(), Utc::now());
+        chain.add_event(2, cid3.clone(), Utc::now());
+
+        assert_eq!(chain.length, 3);
+        assert_eq!(chain.root, cid3);
+        assert_eq!(chain.cids.len(), 3);
+    }
+
+    #[test]
+    fn test_cid_chain_get_cid() {
+        let root = Cid::new("QmRoot");
+        let aggregate_id = Uuid::new_v4();
+        let mut chain = CidChain::new(root, aggregate_id);
+
+        let cid1 = Cid::new("QmEvent1");
+        let cid2 = Cid::new("QmEvent2");
+
+        chain.add_event(0, cid1.clone(), Utc::now());
+        chain.add_event(1, cid2.clone(), Utc::now());
+
+        assert_eq!(chain.get_cid(0), Some(&cid1));
+        assert_eq!(chain.get_cid(1), Some(&cid2));
+        assert_eq!(chain.get_cid(99), None);
+    }
+
+    #[test]
+    fn test_cid_chain_get_ordered_cids() {
+        let root = Cid::new("QmRoot");
+        let aggregate_id = Uuid::new_v4();
+        let mut chain = CidChain::new(root, aggregate_id);
+
+        // Add out of order
+        let cid0 = Cid::new("QmEvent0");
+        let cid1 = Cid::new("QmEvent1");
+        let cid2 = Cid::new("QmEvent2");
+
+        chain.add_event(2, cid2.clone(), Utc::now());
+        chain.add_event(0, cid0.clone(), Utc::now());
+        chain.add_event(1, cid1.clone(), Utc::now());
+
+        let ordered = chain.get_ordered_cids();
+        assert_eq!(ordered.len(), 3);
+        assert_eq!(ordered[0], &cid0);
+        assert_eq!(ordered[1], &cid1);
+        assert_eq!(ordered[2], &cid2);
+    }
+
+    // ========================================================================
+    // EventPayload tests
+    // ========================================================================
+
+    #[test]
+    fn test_event_payload_creation() {
+        let cid = Cid::new("QmPayload");
+        let payload = EventPayload {
+            cid: cid.clone(),
+            data: EventData::NodeAdded {
+                node_id: "node1".to_string(),
+                node_type: "data".to_string(),
+                data: serde_json::json!({}),
+            },
+            previous: None,
+            aggregate_id: Uuid::new_v4(),
+            sequence: 1,
+        };
+
+        assert_eq!(payload.cid, cid);
+        assert_eq!(payload.sequence, 1);
+        assert!(payload.previous.is_none());
+    }
+
+    #[test]
+    fn test_event_payload_with_previous() {
+        let prev_cid = Cid::new("QmPrevious");
+        let cid = Cid::new("QmCurrent");
+        let payload = EventPayload {
+            cid: cid.clone(),
+            data: EventData::NodeAdded {
+                node_id: "node1".to_string(),
+                node_type: "data".to_string(),
+                data: serde_json::json!({}),
+            },
+            previous: Some(prev_cid.clone()),
+            aggregate_id: Uuid::new_v4(),
+            sequence: 2,
+        };
+
+        assert_eq!(payload.previous, Some(prev_cid));
+    }
+
+    // ========================================================================
+    // IpldEventNode tests
+    // ========================================================================
+
+    #[test]
+    fn test_ipld_event_node_new() {
+        let cid = Cid::new("QmEventNode");
+        let payload = EventPayload {
+            cid: cid.clone(),
+            data: EventData::NodeAdded {
+                node_id: "test".to_string(),
+                node_type: "test".to_string(),
+                data: serde_json::json!({}),
+            },
+            previous: None,
+            aggregate_id: Uuid::new_v4(),
+            sequence: 1,
+        };
+
+        let node = IpldEventNode::new(cid.clone(), payload);
+
+        assert_eq!(node.cid, cid);
+        assert!(node.links.is_empty()); // No previous
+    }
+
+    #[test]
+    fn test_event_node_linkage() {
+        let cid1 = Cid::new("QmFirst");
+        let cid2 = Cid::new("QmSecond");
+
+        let payload = EventPayload {
+            cid: cid2.clone(),
+            data: EventData::NodeAdded {
+                node_id: "test".to_string(),
+                node_type: "test".to_string(),
+                data: serde_json::json!({}),
+            },
+            previous: Some(cid1.clone()),
+            aggregate_id: Uuid::new_v4(),
+            sequence: 2,
+        };
+
+        let node = IpldEventNode::new(cid2.clone(), payload);
+
+        assert_eq!(node.previous(), Some(&cid1));
+        assert_eq!(node.links.get("previous"), Some(&cid1));
+    }
+
+    #[test]
+    fn test_ipld_event_node_implements_node_trait() {
+        let cid = Cid::new("QmNodeTrait");
+        let payload = EventPayload {
+            cid: cid.clone(),
+            data: EventData::NodeAdded {
+                node_id: "test".to_string(),
+                node_type: "test".to_string(),
+                data: serde_json::json!({}),
+            },
+            previous: None,
+            aggregate_id: Uuid::new_v4(),
+            sequence: 1,
+        };
+
+        let node = IpldEventNode::new(cid.clone(), payload);
+        assert_eq!(node.id(), "QmNodeTrait");
+    }
+
+    // ========================================================================
+    // IpldChainEdge tests
+    // ========================================================================
+
+    #[test]
+    fn test_ipld_chain_edge() {
+        let edge = IpldChainEdge {
+            id: "edge1".to_string(),
+            source: Cid::new("QmSource"),
+            target: Cid::new("QmTarget"),
+            link_type: "previous".to_string(),
+        };
+
+        assert_eq!(edge.id(), "edge1");
+        assert_eq!(edge.source(), "QmSource");
+        assert_eq!(edge.target(), "QmTarget");
+    }
+
+    // ========================================================================
+    // MockCidGenerator tests
+    // ========================================================================
+
+    #[test]
+    fn test_mock_cid_generator_generate() {
+        let generator = MockCidGenerator;
+
+        let data1 = EventData::NodeAdded {
+            node_id: "unique_node_1".to_string(),
+            node_type: "test_type_first".to_string(),
+            data: serde_json::json!({"value": 111, "key": "first"}),
+        };
+
+        // Use a completely different event type to ensure different CIDs
+        let data2 = EventData::NodeRemoved {
+            node_id: "unique_node_2".to_string(),
+        };
+
+        let cid1 = generator.generate_cid(&data1);
+        let cid2 = generator.generate_cid(&data2);
+
+        // Different data should produce different CIDs
+        assert_ne!(cid1, cid2);
+        // CIDs should start with "Qm"
+        assert!(cid1.as_str().starts_with("Qm"));
+        assert!(cid2.as_str().starts_with("Qm"));
+    }
+
+    #[test]
+    fn test_mock_cid_generator_verify() {
+        let generator = MockCidGenerator;
+
+        let data = EventData::NodeAdded {
+            node_id: "node1".to_string(),
+            node_type: "test".to_string(),
+            data: serde_json::json!({}),
+        };
+
+        let cid = generator.generate_cid(&data);
+
+        // Same data should verify
+        assert!(generator.verify_cid(&cid, &data));
+
+        // Different data should not verify
+        let different_data = EventData::NodeRemoved {
+            node_id: "node1".to_string(),
+        };
+        assert!(!generator.verify_cid(&cid, &different_data));
+    }
+
+    // ========================================================================
+    // EventChainBuilder tests
+    // ========================================================================
+
+    #[test]
+    fn test_event_chain_builder_new() {
+        let generator = MockCidGenerator;
+        let builder = EventChainBuilder::new(generator);
+
+        // Should create successfully
+        let _ = format!("{:?}", builder);
+    }
+
     #[test]
     fn test_cid_chain_construction() {
         let generator = MockCidGenerator;
         let mut builder = EventChainBuilder::new(generator);
-        
+
         let aggregate_id = Uuid::new_v4();
         let events = vec![
             GraphEvent {
@@ -314,40 +641,79 @@ mod tests {
                 },
             },
         ];
-        
+
         let chain = builder.build_chain(&events);
-        
+
         assert_eq!(chain.aggregate_id, aggregate_id);
         // Length is the highest sequence + 1
         assert_eq!(chain.length, 3);
         assert_eq!(chain.cids.len(), 2);
-        
+
         // Verify chain linkage
         let cid1 = chain.get_cid(1).unwrap();
         let cid2 = chain.get_cid(2).unwrap();
         assert_ne!(cid1, cid2); // Different CIDs for different events
     }
-    
+
     #[test]
-    fn test_event_node_linkage() {
-        let cid1 = Cid::new("QmFirst");
-        let cid2 = Cid::new("QmSecond");
-        
-        let payload = EventPayload {
-            cid: cid2.clone(),
-            data: EventData::NodeAdded {
-                node_id: "test".to_string(),
-                node_type: "test".to_string(),
-                data: serde_json::json!({}),
+    fn test_event_chain_builder_retrieve_by_cid() {
+        let generator = MockCidGenerator;
+        let builder = EventChainBuilder::new(generator);
+
+        let cid = Cid::new("QmTest");
+        let result = builder.retrieve_by_cid(&cid);
+
+        // Should return error (not implemented)
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Not implemented"));
+    }
+
+    // ========================================================================
+    // IpldChainCommand tests
+    // ========================================================================
+
+    #[test]
+    fn test_ipld_chain_command_store_event() {
+        let cmd = IpldChainCommand::StoreEvent {
+            event: GraphEvent {
+                event_id: Uuid::new_v4(),
+                aggregate_id: Uuid::new_v4(),
+                sequence: 1,
+                subject: "test".to_string(),
+                timestamp: Utc::now(),
+                correlation_id: Uuid::new_v4(),
+                causation_id: None,
+                data: EventData::NodeAdded {
+                    node_id: "node1".to_string(),
+                    node_type: "test".to_string(),
+                    data: serde_json::json!({}),
+                },
             },
-            previous: Some(cid1.clone()),
-            aggregate_id: Uuid::new_v4(),
-            sequence: 2,
+            previous_cid: Some(Cid::new("QmPrev")),
         };
-        
-        let node = IpldEventNode::new(cid2.clone(), payload);
-        
-        assert_eq!(node.previous(), Some(&cid1));
-        assert_eq!(node.links.get("previous"), Some(&cid1));
+
+        let json = serde_json::to_string(&cmd).unwrap();
+        assert!(json.contains("StoreEvent"));
+    }
+
+    #[test]
+    fn test_ipld_chain_command_retrieve_chain() {
+        let cmd = IpldChainCommand::RetrieveChain {
+            root_cid: Cid::new("QmRoot"),
+        };
+
+        let json = serde_json::to_string(&cmd).unwrap();
+        assert!(json.contains("RetrieveChain"));
+        assert!(json.contains("QmRoot"));
+    }
+
+    #[test]
+    fn test_ipld_chain_command_verify_chain() {
+        let cmd = IpldChainCommand::VerifyChain {
+            root_cid: Cid::new("QmVerify"),
+        };
+
+        let json = serde_json::to_string(&cmd).unwrap();
+        assert!(json.contains("VerifyChain"));
     }
 }

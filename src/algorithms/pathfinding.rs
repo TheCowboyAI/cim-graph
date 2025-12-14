@@ -376,4 +376,206 @@ mod tests {
         assert_eq!(result.len(), 1);
         assert_eq!(result[0], vec!["A", "B"]);
     }
+
+    // ========== Additional Coverage Tests ==========
+
+    #[test]
+    fn test_shortest_path_empty_graph() {
+        let projection = create_empty_projection();
+        let result = shortest_path(&projection, "A", "B");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_shortest_path_single_node() {
+        let mut projection = create_empty_projection();
+        let node = WorkflowNode::new("A", WorkflowNodeType::Start);
+        projection.nodes.insert("A".to_string(), node);
+        projection.adjacency.insert("A".to_string(), vec![]);
+
+        // Path to self should work
+        let result = shortest_path(&projection, "A", "A").unwrap();
+        assert!(result.is_some());
+        assert_eq!(result.unwrap(), vec!["A"]);
+
+        // Path to non-existent node should fail
+        let result = shortest_path(&projection, "A", "B");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_shortest_path_with_multiple_levels() {
+        // Creates a graph with multiple levels:
+        // A -> B -> D -> E
+        //      |
+        //      v
+        //      C
+        let mut projection = create_empty_projection();
+        for id in ["A", "B", "C", "D", "E"] {
+            let node = WorkflowNode::new(id, WorkflowNodeType::Start);
+            projection.nodes.insert(id.to_string(), node);
+        }
+
+        projection.adjacency.insert("A".to_string(), vec!["B".to_string()]);
+        projection.adjacency.insert("B".to_string(), vec!["C".to_string(), "D".to_string()]);
+        projection.adjacency.insert("C".to_string(), vec![]);
+        projection.adjacency.insert("D".to_string(), vec!["E".to_string()]);
+        projection.adjacency.insert("E".to_string(), vec![]);
+
+        // A to E should go through B and D
+        let result = shortest_path(&projection, "A", "E").unwrap();
+        assert!(result.is_some());
+        let path = result.unwrap();
+        assert_eq!(path.len(), 4);
+        assert_eq!(path[0], "A");
+        assert_eq!(path[path.len() - 1], "E");
+    }
+
+    #[test]
+    fn test_all_paths_with_fan_out() {
+        // Creates:
+        //     B -> E
+        //   /
+        // A -> C -> E
+        //   \
+        //     D -> E
+        let mut projection = create_empty_projection();
+        for id in ["A", "B", "C", "D", "E"] {
+            let node = WorkflowNode::new(id, WorkflowNodeType::Start);
+            projection.nodes.insert(id.to_string(), node);
+        }
+
+        projection.adjacency.insert("A".to_string(), vec!["B".to_string(), "C".to_string(), "D".to_string()]);
+        projection.adjacency.insert("B".to_string(), vec!["E".to_string()]);
+        projection.adjacency.insert("C".to_string(), vec!["E".to_string()]);
+        projection.adjacency.insert("D".to_string(), vec!["E".to_string()]);
+        projection.adjacency.insert("E".to_string(), vec![]);
+
+        let result = all_paths(&projection, "A", "E").unwrap();
+        assert_eq!(result.len(), 3); // A->B->E, A->C->E, A->D->E
+
+        // All paths should be length 3
+        for path in &result {
+            assert_eq!(path.len(), 3);
+            assert_eq!(path[0], "A");
+            assert_eq!(path[2], "E");
+        }
+    }
+
+    #[test]
+    fn test_all_paths_empty_graph() {
+        let projection = create_empty_projection();
+        let result = all_paths(&projection, "A", "B");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_all_paths_single_node_to_self() {
+        let mut projection = create_empty_projection();
+        let node = WorkflowNode::new("A", WorkflowNodeType::Start);
+        projection.nodes.insert("A".to_string(), node);
+        projection.adjacency.insert("A".to_string(), vec![]);
+
+        let result = all_paths(&projection, "A", "A").unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0], vec!["A"]);
+    }
+
+    #[test]
+    fn test_shortest_path_with_cycle_avoidance() {
+        // Creates a graph where there's a cycle:
+        // A -> B -> C -> D
+        //      ^       |
+        //      |_______|
+        // But shortest path shouldn't loop
+        let mut projection = create_empty_projection();
+        for id in ["A", "B", "C", "D"] {
+            let node = WorkflowNode::new(id, WorkflowNodeType::Start);
+            projection.nodes.insert(id.to_string(), node);
+        }
+
+        projection.adjacency.insert("A".to_string(), vec!["B".to_string()]);
+        projection.adjacency.insert("B".to_string(), vec!["C".to_string()]);
+        projection.adjacency.insert("C".to_string(), vec!["D".to_string(), "B".to_string()]);
+        projection.adjacency.insert("D".to_string(), vec![]);
+
+        let result = shortest_path(&projection, "A", "D").unwrap();
+        assert!(result.is_some());
+        let path = result.unwrap();
+        // BFS will find shortest path A->B->C->D = 4 nodes
+        assert_eq!(path.len(), 4);
+        assert_eq!(path, vec!["A", "B", "C", "D"]);
+    }
+
+    #[test]
+    fn test_all_paths_with_partial_connectivity() {
+        // A -> B
+        // C -> D (disconnected from A,B)
+        let mut projection = create_empty_projection();
+        for id in ["A", "B", "C", "D"] {
+            let node = WorkflowNode::new(id, WorkflowNodeType::Start);
+            projection.nodes.insert(id.to_string(), node);
+        }
+
+        projection.adjacency.insert("A".to_string(), vec!["B".to_string()]);
+        projection.adjacency.insert("B".to_string(), vec![]);
+        projection.adjacency.insert("C".to_string(), vec!["D".to_string()]);
+        projection.adjacency.insert("D".to_string(), vec![]);
+
+        // No path from A to D
+        let result = all_paths(&projection, "A", "D").unwrap();
+        assert_eq!(result.len(), 0);
+
+        // Path from A to B exists
+        let result = all_paths(&projection, "A", "B").unwrap();
+        assert_eq!(result.len(), 1);
+    }
+
+    #[test]
+    fn test_shortest_path_bidirectional_edges() {
+        // A <-> B <-> C
+        let mut projection = create_empty_projection();
+        for id in ["A", "B", "C"] {
+            let node = WorkflowNode::new(id, WorkflowNodeType::Start);
+            projection.nodes.insert(id.to_string(), node);
+        }
+
+        projection.adjacency.insert("A".to_string(), vec!["B".to_string()]);
+        projection.adjacency.insert("B".to_string(), vec!["A".to_string(), "C".to_string()]);
+        projection.adjacency.insert("C".to_string(), vec!["B".to_string()]);
+
+        // Forward path
+        let result = shortest_path(&projection, "A", "C").unwrap();
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().len(), 3); // A -> B -> C
+
+        // Reverse path
+        let result = shortest_path(&projection, "C", "A").unwrap();
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().len(), 3); // C -> B -> A
+    }
+
+    #[test]
+    fn test_all_paths_with_long_chain() {
+        // A -> B -> C -> D -> E -> F -> G
+        let ids: Vec<&str> = vec!["A", "B", "C", "D", "E", "F", "G"];
+        let mut projection = create_empty_projection();
+
+        for id in &ids {
+            let node = WorkflowNode::new(*id, WorkflowNodeType::Start);
+            projection.nodes.insert(id.to_string(), node);
+        }
+
+        for i in 0..ids.len() - 1 {
+            projection.adjacency.insert(
+                ids[i].to_string(),
+                vec![ids[i + 1].to_string()]
+            );
+        }
+        projection.adjacency.insert("G".to_string(), vec![]);
+
+        let result = all_paths(&projection, "A", "G").unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].len(), 7);
+    }
 }

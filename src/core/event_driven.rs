@@ -288,12 +288,419 @@ pub fn build_subject(graph_type: GraphType, event_type: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
+    // ========================================================================
+    // GraphCommand tests
+    // ========================================================================
+
+    #[test]
+    fn test_graph_command_create_graph() {
+        let graph_id = Uuid::new_v4();
+        let cmd = GraphCommand::CreateGraph {
+            graph_id,
+            graph_type: GraphType::WorkflowGraph,
+            name: Some("Test Graph".to_string()),
+        };
+
+        let json = serde_json::to_string(&cmd).unwrap();
+        assert!(json.contains("CreateGraph"));
+        assert!(json.contains("Test Graph"));
+    }
+
+    #[test]
+    fn test_graph_command_add_node() {
+        let graph_id = Uuid::new_v4();
+        let cmd = GraphCommand::AddNode {
+            graph_id,
+            node_id: "node1".to_string(),
+            node_type: "State".to_string(),
+            data: serde_json::json!({"label": "Start"}),
+        };
+
+        let json = serde_json::to_string(&cmd).unwrap();
+        assert!(json.contains("AddNode"));
+        assert!(json.contains("node1"));
+    }
+
+    #[test]
+    fn test_graph_command_add_edge() {
+        let graph_id = Uuid::new_v4();
+        let cmd = GraphCommand::AddEdge {
+            graph_id,
+            edge_id: "edge1".to_string(),
+            source_id: "node1".to_string(),
+            target_id: "node2".to_string(),
+            edge_type: "transition".to_string(),
+            data: serde_json::json!({}),
+        };
+
+        let json = serde_json::to_string(&cmd).unwrap();
+        assert!(json.contains("AddEdge"));
+        assert!(json.contains("edge1"));
+    }
+
+    #[test]
+    fn test_graph_command_remove_node() {
+        let cmd = GraphCommand::RemoveNode {
+            graph_id: Uuid::new_v4(),
+            node_id: "node_to_remove".to_string(),
+        };
+
+        let json = serde_json::to_string(&cmd).unwrap();
+        assert!(json.contains("RemoveNode"));
+        assert!(json.contains("node_to_remove"));
+    }
+
+    #[test]
+    fn test_graph_command_remove_edge() {
+        let cmd = GraphCommand::RemoveEdge {
+            graph_id: Uuid::new_v4(),
+            edge_id: "edge_to_remove".to_string(),
+        };
+
+        let json = serde_json::to_string(&cmd).unwrap();
+        assert!(json.contains("RemoveEdge"));
+    }
+
+    // ========================================================================
+    // EventData tests
+    // ========================================================================
+
+    #[test]
+    fn test_event_data_graph_created() {
+        let data = EventData::GraphCreated {
+            graph_type: GraphType::IpldGraph,
+            name: Some("IPLD Test".to_string()),
+        };
+
+        let json = serde_json::to_string(&data).unwrap();
+        assert!(json.contains("GraphCreated"));
+        assert!(json.contains("IPLD Test"));
+    }
+
+    #[test]
+    fn test_event_data_node_added() {
+        let data = EventData::NodeAdded {
+            node_id: "new_node".to_string(),
+            node_type: "State".to_string(),
+            data: serde_json::json!({"key": "value"}),
+        };
+
+        let json = serde_json::to_string(&data).unwrap();
+        assert!(json.contains("NodeAdded"));
+        assert!(json.contains("new_node"));
+    }
+
+    #[test]
+    fn test_event_data_edge_added() {
+        let data = EventData::EdgeAdded {
+            edge_id: "edge1".to_string(),
+            source_id: "src".to_string(),
+            target_id: "tgt".to_string(),
+            edge_type: "link".to_string(),
+            data: serde_json::json!({}),
+        };
+
+        let json = serde_json::to_string(&data).unwrap();
+        assert!(json.contains("EdgeAdded"));
+    }
+
+    #[test]
+    fn test_event_data_node_removed() {
+        let data = EventData::NodeRemoved {
+            node_id: "removed_node".to_string(),
+        };
+
+        let json = serde_json::to_string(&data).unwrap();
+        assert!(json.contains("NodeRemoved"));
+        assert!(json.contains("removed_node"));
+    }
+
+    #[test]
+    fn test_event_data_edge_removed() {
+        let data = EventData::EdgeRemoved {
+            edge_id: "removed_edge".to_string(),
+        };
+
+        let json = serde_json::to_string(&data).unwrap();
+        assert!(json.contains("EdgeRemoved"));
+    }
+
+    // ========================================================================
+    // GraphEvent tests
+    // ========================================================================
+
+    #[test]
+    fn test_graph_event_creation() {
+        let event = GraphEvent {
+            event_id: Uuid::new_v4(),
+            sequence: 1,
+            subject: "test.subject".to_string(),
+            timestamp: Utc::now(),
+            aggregate_id: Uuid::new_v4(),
+            correlation_id: Uuid::new_v4(),
+            causation_id: None,
+            data: EventData::GraphCreated {
+                graph_type: GraphType::Generic,
+                name: None,
+            },
+        };
+
+        assert_eq!(event.sequence, 1);
+        assert!(event.causation_id.is_none());
+    }
+
+    #[test]
+    fn test_graph_event_with_causation() {
+        let cause_id = Uuid::new_v4();
+        let event = GraphEvent {
+            event_id: Uuid::new_v4(),
+            sequence: 2,
+            subject: "test.subject".to_string(),
+            timestamp: Utc::now(),
+            aggregate_id: Uuid::new_v4(),
+            correlation_id: Uuid::new_v4(),
+            causation_id: Some(cause_id),
+            data: EventData::NodeAdded {
+                node_id: "node".to_string(),
+                node_type: "type".to_string(),
+                data: serde_json::json!({}),
+            },
+        };
+
+        assert_eq!(event.causation_id, Some(cause_id));
+    }
+
+    // ========================================================================
+    // GraphProjection tests
+    // ========================================================================
+
+    #[test]
+    fn test_graph_projection_new() {
+        let aggregate_id = Uuid::new_v4();
+        let projection = GraphProjection::new(aggregate_id);
+
+        assert_eq!(projection.aggregate_id, aggregate_id);
+        assert_eq!(projection.version, 0);
+        assert_eq!(projection.graph_type, GraphType::Generic);
+        assert!(projection.nodes.is_empty());
+        assert!(projection.edges.is_empty());
+    }
+
+    #[test]
+    fn test_graph_projection_apply_graph_created() {
+        let aggregate_id = Uuid::new_v4();
+        let mut projection = GraphProjection::new(aggregate_id);
+
+        let event = GraphEvent {
+            event_id: Uuid::new_v4(),
+            sequence: 1,
+            subject: "test".to_string(),
+            timestamp: Utc::now(),
+            aggregate_id,
+            correlation_id: Uuid::new_v4(),
+            causation_id: None,
+            data: EventData::GraphCreated {
+                graph_type: GraphType::ContextGraph,
+                name: Some("Context".to_string()),
+            },
+        };
+
+        projection.apply(&event);
+
+        assert_eq!(projection.version, 1);
+        assert_eq!(projection.graph_type, GraphType::ContextGraph);
+    }
+
+    #[test]
+    fn test_graph_projection_apply_node_added() {
+        let aggregate_id = Uuid::new_v4();
+        let mut projection = GraphProjection::new(aggregate_id);
+
+        let event = GraphEvent {
+            event_id: Uuid::new_v4(),
+            sequence: 1,
+            subject: "test".to_string(),
+            timestamp: Utc::now(),
+            aggregate_id,
+            correlation_id: Uuid::new_v4(),
+            causation_id: None,
+            data: EventData::NodeAdded {
+                node_id: "test_node".to_string(),
+                node_type: "State".to_string(),
+                data: serde_json::json!({"label": "Test"}),
+            },
+        };
+
+        projection.apply(&event);
+
+        assert_eq!(projection.nodes.len(), 1);
+        let node = projection.nodes.get("test_node").unwrap();
+        assert_eq!(node.node_id, "test_node");
+        assert_eq!(node.node_type, "State");
+    }
+
+    #[test]
+    fn test_graph_projection_apply_edge_added() {
+        let aggregate_id = Uuid::new_v4();
+        let mut projection = GraphProjection::new(aggregate_id);
+
+        let edge_event = GraphEvent {
+            event_id: Uuid::new_v4(),
+            sequence: 1,
+            subject: "test".to_string(),
+            timestamp: Utc::now(),
+            aggregate_id,
+            correlation_id: Uuid::new_v4(),
+            causation_id: None,
+            data: EventData::EdgeAdded {
+                edge_id: "edge1".to_string(),
+                source_id: "node1".to_string(),
+                target_id: "node2".to_string(),
+                edge_type: "transition".to_string(),
+                data: serde_json::json!({"trigger": "submit"}),
+            },
+        };
+
+        projection.apply(&edge_event);
+
+        assert_eq!(projection.edges.len(), 1);
+        let edge = projection.edges.get("edge1").unwrap();
+        assert_eq!(edge.source_id, "node1");
+        assert_eq!(edge.target_id, "node2");
+    }
+
+    #[test]
+    fn test_graph_projection_apply_node_removed() {
+        let aggregate_id = Uuid::new_v4();
+        let mut projection = GraphProjection::new(aggregate_id);
+
+        // Add node first
+        let add_event = GraphEvent {
+            event_id: Uuid::new_v4(),
+            sequence: 1,
+            subject: "test".to_string(),
+            timestamp: Utc::now(),
+            aggregate_id,
+            correlation_id: Uuid::new_v4(),
+            causation_id: None,
+            data: EventData::NodeAdded {
+                node_id: "to_remove".to_string(),
+                node_type: "State".to_string(),
+                data: serde_json::json!({}),
+            },
+        };
+        projection.apply(&add_event);
+        assert_eq!(projection.nodes.len(), 1);
+
+        // Remove node
+        let remove_event = GraphEvent {
+            event_id: Uuid::new_v4(),
+            sequence: 2,
+            subject: "test".to_string(),
+            timestamp: Utc::now(),
+            aggregate_id,
+            correlation_id: Uuid::new_v4(),
+            causation_id: None,
+            data: EventData::NodeRemoved {
+                node_id: "to_remove".to_string(),
+            },
+        };
+        projection.apply(&remove_event);
+
+        assert!(projection.nodes.is_empty());
+    }
+
+    #[test]
+    fn test_graph_projection_node_removal_cascades_to_edges() {
+        let aggregate_id = Uuid::new_v4();
+        let mut projection = GraphProjection::new(aggregate_id);
+
+        // Add edge connected to node
+        let edge_event = GraphEvent {
+            event_id: Uuid::new_v4(),
+            sequence: 1,
+            subject: "test".to_string(),
+            timestamp: Utc::now(),
+            aggregate_id,
+            correlation_id: Uuid::new_v4(),
+            causation_id: None,
+            data: EventData::EdgeAdded {
+                edge_id: "edge1".to_string(),
+                source_id: "node1".to_string(),
+                target_id: "node2".to_string(),
+                edge_type: "link".to_string(),
+                data: serde_json::json!({}),
+            },
+        };
+        projection.apply(&edge_event);
+        assert_eq!(projection.edges.len(), 1);
+
+        // Remove source node - edge should be removed too
+        let remove_event = GraphEvent {
+            event_id: Uuid::new_v4(),
+            sequence: 2,
+            subject: "test".to_string(),
+            timestamp: Utc::now(),
+            aggregate_id,
+            correlation_id: Uuid::new_v4(),
+            causation_id: None,
+            data: EventData::NodeRemoved {
+                node_id: "node1".to_string(),
+            },
+        };
+        projection.apply(&remove_event);
+
+        assert!(projection.edges.is_empty());
+    }
+
+    #[test]
+    fn test_graph_projection_apply_edge_removed() {
+        let aggregate_id = Uuid::new_v4();
+        let mut projection = GraphProjection::new(aggregate_id);
+
+        // Add edge
+        let add_event = GraphEvent {
+            event_id: Uuid::new_v4(),
+            sequence: 1,
+            subject: "test".to_string(),
+            timestamp: Utc::now(),
+            aggregate_id,
+            correlation_id: Uuid::new_v4(),
+            causation_id: None,
+            data: EventData::EdgeAdded {
+                edge_id: "edge_to_remove".to_string(),
+                source_id: "a".to_string(),
+                target_id: "b".to_string(),
+                edge_type: "link".to_string(),
+                data: serde_json::json!({}),
+            },
+        };
+        projection.apply(&add_event);
+
+        // Remove edge
+        let remove_event = GraphEvent {
+            event_id: Uuid::new_v4(),
+            sequence: 2,
+            subject: "test".to_string(),
+            timestamp: Utc::now(),
+            aggregate_id,
+            correlation_id: Uuid::new_v4(),
+            causation_id: None,
+            data: EventData::EdgeRemoved {
+                edge_id: "edge_to_remove".to_string(),
+            },
+        };
+        projection.apply(&remove_event);
+
+        assert!(projection.edges.is_empty());
+    }
+
     #[test]
     fn test_event_driven_graph() {
         let aggregate_id = Uuid::new_v4();
         let correlation_id = Uuid::new_v4();
-        
+
         // Create events - this is the ONLY way to change state
         let events = vec![
             GraphEvent {
@@ -324,13 +731,81 @@ mod tests {
                 },
             },
         ];
-        
+
         // Build projection from events
         let projection = GraphProjection::from_events(aggregate_id, events.into_iter());
-        
+
         assert_eq!(projection.version, 2);
         assert_eq!(projection.graph_type, GraphType::WorkflowGraph);
         assert_eq!(projection.nodes.len(), 1);
         assert!(projection.nodes.contains_key("start"));
+    }
+
+    #[test]
+    fn test_graph_projection_from_empty_events() {
+        let aggregate_id = Uuid::new_v4();
+        let events: Vec<GraphEvent> = vec![];
+        let projection = GraphProjection::from_events(aggregate_id, events.into_iter());
+
+        assert_eq!(projection.version, 0);
+        assert!(projection.nodes.is_empty());
+        assert!(projection.edges.is_empty());
+    }
+
+    // ========================================================================
+    // build_subject tests
+    // ========================================================================
+
+    #[test]
+    fn test_build_subject() {
+        let subject = build_subject(GraphType::WorkflowGraph, "created");
+        assert!(subject.contains("workflow"));
+        assert!(subject.contains("created"));
+    }
+
+    #[test]
+    fn test_build_subject_with_dots() {
+        let subject = build_subject(GraphType::IpldGraph, "node.added");
+        assert!(subject.contains("ipld"));
+        assert!(subject.contains("node"));
+        assert!(subject.contains("added"));
+    }
+
+    // ========================================================================
+    // NodeProjection and EdgeProjection tests
+    // ========================================================================
+
+    #[test]
+    fn test_node_projection_clone() {
+        let node = NodeProjection {
+            node_id: "test".to_string(),
+            node_type: "State".to_string(),
+            data: serde_json::json!({"key": "value"}),
+            created_at: Utc::now(),
+            created_by_event: Uuid::new_v4(),
+        };
+
+        let cloned = node.clone();
+        assert_eq!(node.node_id, cloned.node_id);
+        assert_eq!(node.node_type, cloned.node_type);
+        assert_eq!(node.data, cloned.data);
+    }
+
+    #[test]
+    fn test_edge_projection_clone() {
+        let edge = EdgeProjection {
+            edge_id: "e1".to_string(),
+            source_id: "src".to_string(),
+            target_id: "tgt".to_string(),
+            edge_type: "link".to_string(),
+            data: serde_json::json!({}),
+            created_at: Utc::now(),
+            created_by_event: Uuid::new_v4(),
+        };
+
+        let cloned = edge.clone();
+        assert_eq!(edge.edge_id, cloned.edge_id);
+        assert_eq!(edge.source_id, cloned.source_id);
+        assert_eq!(edge.target_id, cloned.target_id);
     }
 }

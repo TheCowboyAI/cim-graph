@@ -511,9 +511,352 @@ mod tests {
     #[test]
     fn test_perf_counter_empty() {
         use monitoring::PerfCounter;
-        
+
         let counter = PerfCounter::new("empty");
         // Average of no operations should be zero
         assert_eq!(counter.average_time(), std::time::Duration::ZERO);
+    }
+
+    // ========== Additional Coverage Tests ==========
+
+    #[derive(Clone, Debug)]
+    struct TestEdge {
+        id: String,
+        source: String,
+        target: String,
+    }
+
+    impl Edge for TestEdge {
+        fn id(&self) -> String {
+            self.id.clone()
+        }
+        fn source(&self) -> String {
+            self.source.clone()
+        }
+        fn target(&self) -> String {
+            self.target.clone()
+        }
+    }
+
+    #[test]
+    fn test_node_index_empty() {
+        let index: NodeIndex<TestNode> = NodeIndex::new();
+        assert!(index.get("nonexistent").is_none());
+        assert!(index.get_by_type("default").is_none());
+    }
+
+    #[test]
+    fn test_node_index_multiple_nodes() {
+        let mut index = NodeIndex::new();
+
+        for i in 0..5 {
+            let node = Arc::new(TestNode { id: format!("node{}", i) });
+            index.insert(node);
+        }
+
+        // Verify all nodes are retrievable
+        for i in 0..5 {
+            assert!(index.get(&format!("node{}", i)).is_some());
+        }
+
+        // Verify type index
+        let by_type = index.get_by_type("default").unwrap();
+        assert_eq!(by_type.len(), 5);
+    }
+
+    #[test]
+    fn test_node_index_remove_multiple() {
+        let mut index = NodeIndex::new();
+
+        for i in 0..3 {
+            let node = Arc::new(TestNode { id: format!("node{}", i) });
+            index.insert(node);
+        }
+
+        // Remove one node
+        let removed = index.remove("node1");
+        assert!(removed.is_some());
+        assert_eq!(removed.unwrap().id, "node1");
+
+        // Verify it's gone
+        assert!(index.get("node1").is_none());
+
+        // Verify others still exist
+        assert!(index.get("node0").is_some());
+        assert!(index.get("node2").is_some());
+
+        // Verify type index is updated
+        let by_type = index.get_by_type("default").unwrap();
+        assert_eq!(by_type.len(), 2);
+    }
+
+    #[test]
+    fn test_node_index_remove_nonexistent() {
+        let mut index: NodeIndex<TestNode> = NodeIndex::new();
+        let result = index.remove("nonexistent");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_edge_index() {
+        let mut index: EdgeIndex<TestEdge> = EdgeIndex::new();
+
+        let edge1 = Arc::new(TestEdge {
+            id: "e1".to_string(),
+            source: "A".to_string(),
+            target: "B".to_string(),
+        });
+        let edge2 = Arc::new(TestEdge {
+            id: "e2".to_string(),
+            source: "A".to_string(),
+            target: "C".to_string(),
+        });
+        let edge3 = Arc::new(TestEdge {
+            id: "e3".to_string(),
+            source: "B".to_string(),
+            target: "C".to_string(),
+        });
+
+        index.insert(edge1);
+        index.insert(edge2);
+        index.insert(edge3);
+
+        // Test edges_from
+        let from_a = index.edges_from("A").unwrap();
+        assert_eq!(from_a.len(), 2);
+
+        let from_b = index.edges_from("B").unwrap();
+        assert_eq!(from_b.len(), 1);
+
+        assert!(index.edges_from("C").is_none());
+        assert!(index.edges_from("X").is_none());
+
+        // Test edges_to
+        let to_c = index.edges_to("C").unwrap();
+        assert_eq!(to_c.len(), 2);
+
+        let to_b = index.edges_to("B").unwrap();
+        assert_eq!(to_b.len(), 1);
+
+        assert!(index.edges_to("A").is_none());
+    }
+
+    #[test]
+    fn test_graph_cache_shortest_path() {
+        let cache = GraphCache::new();
+
+        // Compute and cache a path
+        let path1 = cache.get_shortest_path("A", "B", || {
+            Ok(vec!["A".to_string(), "X".to_string(), "B".to_string()])
+        }).unwrap();
+        assert_eq!(path1.len(), 3);
+
+        // Second call should return cached value (compute fn won't be called)
+        let path2 = cache.get_shortest_path("A", "B", || {
+            panic!("Should not compute - should use cache");
+        }).unwrap();
+        assert_eq!(path1, path2);
+    }
+
+    #[test]
+    fn test_graph_cache_different_keys() {
+        let cache = GraphCache::new();
+
+        let path_ab = cache.get_shortest_path("A", "B", || {
+            Ok(vec!["A".to_string(), "B".to_string()])
+        }).unwrap();
+
+        let path_cd = cache.get_shortest_path("C", "D", || {
+            Ok(vec!["C".to_string(), "D".to_string()])
+        }).unwrap();
+
+        assert_eq!(path_ab, vec!["A", "B"]);
+        assert_eq!(path_cd, vec!["C", "D"]);
+    }
+
+    #[test]
+    fn test_node_pool_capacity_behavior() {
+        #[derive(Default, Debug, PartialEq)]
+        struct PoolableNode {
+            value: i32,
+        }
+
+        let mut pool = NodePool::<PoolableNode>::new(3);
+
+        // Fill the pool beyond capacity
+        for i in 0..5 {
+            pool.release(PoolableNode { value: i });
+        }
+
+        // Should only have 3 items (capacity)
+        let n1 = pool.acquire();
+        let n2 = pool.acquire();
+        let n3 = pool.acquire();
+        let n4 = pool.acquire(); // This should be default
+
+        // Values 0 and 1 were dropped, 2, 3, 4 were kept
+        assert!(n4.value == 0); // Default value when pool is empty
+    }
+
+    #[test]
+    fn test_parallel_bfs_empty_start() {
+        use parallel::parallel_bfs;
+        use std::collections::HashMap;
+
+        let graph: HashMap<String, Vec<String>> = HashMap::new();
+
+        let get_neighbors = |_node: &str| -> Vec<String> {
+            vec![]
+        };
+
+        let result = parallel_bfs(vec![], get_neighbors);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_parallel_bfs_single_node() {
+        use parallel::parallel_bfs;
+        use std::collections::HashMap;
+
+        let mut graph = HashMap::new();
+        graph.insert("A".to_string(), vec![]);
+
+        let get_neighbors = |node: &str| -> Vec<String> {
+            graph.get(node).cloned().unwrap_or_default()
+        };
+
+        let result = parallel_bfs(vec!["A".to_string()], get_neighbors);
+        assert_eq!(result, vec!["A"]);
+    }
+
+    #[test]
+    fn test_parallel_bfs_multiple_start_nodes() {
+        use parallel::parallel_bfs;
+        use std::collections::HashMap;
+
+        let graph = HashMap::from([
+            ("A".to_string(), vec!["C".to_string()]),
+            ("B".to_string(), vec!["C".to_string()]),
+            ("C".to_string(), vec!["D".to_string()]),
+            ("D".to_string(), vec![]),
+        ]);
+
+        let get_neighbors = |node: &str| -> Vec<String> {
+            graph.get(node).cloned().unwrap_or_default()
+        };
+
+        // Start from multiple nodes
+        let result = parallel_bfs(vec!["A".to_string(), "B".to_string()], get_neighbors);
+
+        assert_eq!(result.len(), 4);
+        assert!(result.contains(&"A".to_string()));
+        assert!(result.contains(&"B".to_string()));
+        assert!(result.contains(&"C".to_string()));
+        assert!(result.contains(&"D".to_string()));
+    }
+
+    #[test]
+    fn test_parallel_degrees_empty() {
+        use parallel::parallel_degrees;
+        use rayon::prelude::*;
+
+        let nodes: Vec<String> = vec![];
+
+        let get_degree = |_node: &str| -> usize { 0 };
+
+        let result = parallel_degrees(nodes.par_iter(), get_degree);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_parallel_degrees_single_node() {
+        use parallel::parallel_degrees;
+        use rayon::prelude::*;
+
+        let nodes = vec!["A".to_string()];
+
+        let get_degree = |_node: &str| -> usize { 5 };
+
+        let result = parallel_degrees(nodes.par_iter(), get_degree);
+        assert_eq!(result.get("A"), Some(&5));
+    }
+
+    #[test]
+    fn test_perf_counter_multiple_measurements() {
+        use monitoring::PerfCounter;
+        use std::thread;
+        use std::time::Duration;
+
+        let counter = PerfCounter::new("multi");
+
+        // Perform multiple measurements
+        for _ in 0..5 {
+            counter.measure(|| {
+                thread::sleep(Duration::from_millis(5));
+            });
+        }
+
+        let avg = counter.average_time();
+        assert!(avg >= Duration::from_millis(5));
+    }
+
+    #[test]
+    fn test_perf_counter_with_return_value() {
+        use monitoring::PerfCounter;
+
+        let counter = PerfCounter::new("return_value");
+
+        let result = counter.measure(|| {
+            let x = 10 + 20;
+            x * 2
+        });
+
+        assert_eq!(result, 60);
+
+        // Counter should have recorded one operation
+        let avg = counter.average_time();
+        assert!(avg >= std::time::Duration::ZERO);
+    }
+
+    #[test]
+    fn test_graph_cache_error_propagation() {
+        let cache = GraphCache::new();
+
+        let result = cache.get_shortest_path("A", "B", || {
+            Err(crate::error::GraphError::NodeNotFound("test".to_string()))
+        });
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_node_index_debug() {
+        let index: NodeIndex<TestNode> = NodeIndex::new();
+        let debug_str = format!("{:?}", index);
+        assert!(debug_str.contains("NodeIndex"));
+    }
+
+    #[test]
+    fn test_edge_index_debug() {
+        let index: EdgeIndex<TestEdge> = EdgeIndex::new();
+        let debug_str = format!("{:?}", index);
+        assert!(debug_str.contains("EdgeIndex"));
+    }
+
+    #[test]
+    fn test_graph_cache_debug() {
+        let cache = GraphCache::new();
+        let debug_str = format!("{:?}", cache);
+        assert!(debug_str.contains("GraphCache"));
+    }
+
+    #[test]
+    fn test_node_pool_debug() {
+        #[derive(Default, Debug)]
+        struct DebugNode;
+
+        let pool = NodePool::<DebugNode>::new(5);
+        let debug_str = format!("{:?}", pool);
+        assert!(debug_str.contains("NodePool"));
     }
 }
