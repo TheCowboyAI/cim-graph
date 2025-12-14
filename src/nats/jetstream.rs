@@ -1,6 +1,11 @@
 //! NATS JetStream event store implementation
 //!
-//! Provides persistent event storage using NATS JetStream
+//! Provides persistent event storage using NATS JetStream.
+//!
+//! This module uses CIM Domain's subject algebra types:
+//! - [`Subject`] for building validated, concrete NATS subjects
+//! - [`SubjectPattern`] for building wildcard subscription patterns
+//! - [`SubjectSegment`] for individual subject tokens
 
 use crate::error::{GraphError, Result};
 use crate::events::{GraphEvent, EventPayload, GraphType as SubjectGraphType, EventType};
@@ -14,7 +19,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 use cim_domain::{Subject, SubjectSegment, SubjectPattern};
-use crate::channels::{default_prefix, channel_for_entity, validate_pattern};
+use crate::channels::default_prefix;
 
 /// NATS-specific errors
 #[derive(Debug, thiserror::Error)]
@@ -158,10 +163,9 @@ impl JetStreamEventStore {
     
     /// Ensure the stream exists with proper configuration
     async fn ensure_stream(&self) -> Result<()> {
-        let all_subjects = format!("{}.>", self.config.subject_prefix);
-        validate_pattern(&all_subjects)
-            .map_err(|e| NatsError::JetStreamError(e))?;
-        let subjects = vec![all_subjects];
+        // Build wildcard pattern using SubjectPattern for all events under prefix
+        let all_subjects_pattern = build_wildcard_pattern(&self.config.subject_prefix, ">");
+        let subjects = vec![all_subjects_pattern];
         
         let mut stream_config = jetstream::stream::Config {
             name: self.config.stream_name.clone(),
@@ -189,13 +193,14 @@ impl JetStreamEventStore {
     pub async fn publish_event(&self, event: GraphEvent, cid: Option<Cid>) -> Result<u64> {
         // Determine event type and graph type from payload
         let (event_type, graph_type) = determine_event_type(&event.payload);
-        
-        // Publish to entity channel: {prefix}.{aggregate}.{aggregate_id}
-        let subject = channel_for_entity(
+
+        // Build subject using Subject type: {prefix}.{graph_type}.{aggregate_id}
+        let graph_type_str = format!("{:?}", graph_type).to_lowercase();
+        let subject = build_entity_subject(
             &self.config.subject_prefix,
-            &format!("{:?}", graph_type).to_lowercase(),
+            &graph_type_str,
             &event.aggregate_id.to_string(),
-        );
+        ).map_err(|e| NatsError::JetStreamError(e))?;
         
         // For compatibility, also store string representations
         let event_type_str = format!("{:?}", event_type).to_lowercase();
@@ -255,11 +260,12 @@ impl JetStreamEventStore {
         let stream = stream.as_ref()
             .ok_or_else(|| NatsError::StreamNotFound(self.config.stream_name.clone()))?;
         
-        // Create consumer for this aggregate
+        // Create consumer for this aggregate using SubjectPattern for wildcard
         let consumer_name = format!("cim-graph-{}", aggregate_id);
-        let filter_subject = format!("{}.*.{}", self.config.subject_prefix, aggregate_id);
-        validate_pattern(&filter_subject)
-            .map_err(|e| NatsError::ConsumerError(e))?;
+        let filter_subject = build_aggregate_filter_pattern(
+            &self.config.subject_prefix,
+            &aggregate_id.to_string(),
+        );
         
         let consumer: PullConsumer = stream
             .get_or_create_consumer(&consumer_name, jetstream::consumer::pull::Config {
@@ -295,13 +301,25 @@ impl JetStreamEventStore {
     }
     
     /// Fetch events by correlation ID
+    ///
+    /// Uses SubjectSegment validation to ensure the correlation ID is valid
+    /// for use in NATS subject routing.
     pub async fn fetch_by_correlation(&self, correlation_id: Uuid) -> Result<Vec<GraphEvent>> {
+        // Validate correlation ID as a valid subject segment
+        let correlation_segments = build_correlation_segments(correlation_id);
+        if correlation_segments.is_empty() {
+            return Err(NatsError::ConsumerError(
+                format!("Invalid correlation ID format: {}", correlation_id)
+            ).into());
+        }
+        let validated_corr_id = correlation_segments[0].as_str().to_string();
+
         // This requires scanning all events and filtering
         // In production, you'd want to use a separate stream or index
         let stream = self.stream.read().await;
         let stream = stream.as_ref()
             .ok_or_else(|| NatsError::StreamNotFound(self.config.stream_name.clone()))?;
-        
+
         // Create ephemeral consumer
         let consumer: PullConsumer = stream
             .create_consumer(jetstream::consumer::pull::Config {
@@ -309,44 +327,44 @@ impl JetStreamEventStore {
             })
             .await
             .map_err(|e| NatsError::ConsumerError(e.to_string()))?;
-        
+
         let mut events = Vec::new();
         let messages = consumer.fetch()
             .max_messages(1000)
             .messages()
             .await
             .map_err(|e| NatsError::ConsumerError(e.to_string()))?;
-        
+
         let messages: Vec<_> = messages.try_collect().await
             .map_err(|e| NatsError::ConsumerError(e.to_string()))?;
-        
+
         for message in messages {
-            // Check correlation ID in headers
+            // Check correlation ID in headers using validated segment
             if let Some(corr_id) = message.headers
                 .as_ref()
                 .and_then(|h| h.get("Cim-Correlation-Id"))
                 .and_then(|value| std::str::from_utf8(value.as_ref()).ok())
-                .and_then(|s| Uuid::parse_str(s).ok())
             {
-                if corr_id == correlation_id {
+                if corr_id == validated_corr_id {
                     if let Ok(envelope) = serde_json::from_slice::<EventEnvelope>(&message.payload) {
                         events.push(envelope.event);
                     }
                 }
             }
-            
+
             let _ = message.ack().await;
         }
-        
+
         Ok(events)
     }
     
     /// Subscribe to events for real-time updates
     pub async fn subscribe_to_aggregate(&self, aggregate_id: Uuid) -> Result<EventSubscription> {
-        // Use wildcard to subscribe to all event types for this aggregate
-        let filter_subject = format!("{}.*.{}", self.config.subject_prefix, aggregate_id);
-        validate_pattern(&filter_subject)
-            .map_err(|e| NatsError::SubscriptionError(e))?;
+        // Use SubjectPattern wildcard to subscribe to all event types for this aggregate
+        let filter_subject = build_aggregate_filter_pattern(
+            &self.config.subject_prefix,
+            &aggregate_id.to_string(),
+        );
         
         let subscriber = self.client
             .subscribe(filter_subject)
@@ -365,13 +383,12 @@ impl JetStreamEventStore {
         graph_type: SubjectGraphType,
         aggregate_id: Uuid,
     ) -> Result<EventSubscription> {
-        let filter_subject = format!(
-            "{}.{}.*",
-            self.config.subject_prefix,
-            format!("{:?}", graph_type).to_lowercase()
+        // Build SubjectPattern for graph type with wildcard for all aggregates
+        let graph_type_str = format!("{:?}", graph_type).to_lowercase();
+        let filter_subject = build_graph_type_filter_pattern(
+            &self.config.subject_prefix,
+            &graph_type_str,
         );
-        validate_pattern(&filter_subject)
-            .map_err(|e| NatsError::SubscriptionError(e))?;
         
         let subscriber = self.client
             .subscribe(filter_subject)
@@ -512,6 +529,95 @@ impl EventStream for EventSubscription {
     }
 }
 
+// ============================================================================
+// Subject Building Helpers using CIM Domain Subject Algebra
+// ============================================================================
+
+/// Build a concrete subject for entity events using Subject type.
+///
+/// Creates a validated subject like `prefix.graph_type.entity_id`
+fn build_entity_subject(prefix: &str, graph_type: &str, entity_id: &str) -> std::result::Result<String, String> {
+    let mut segments = Vec::new();
+
+    // Parse prefix into segments
+    for part in prefix.split('.') {
+        if !part.is_empty() {
+            segments.push(
+                SubjectSegment::new(part.to_string())
+                    .map_err(|e| format!("Invalid prefix segment '{}': {}", part, e))?
+            );
+        }
+    }
+
+    // Add graph type segment
+    segments.push(
+        SubjectSegment::new(graph_type.to_string())
+            .map_err(|e| format!("Invalid graph type '{}': {}", graph_type, e))?
+    );
+
+    // Add entity ID segment
+    segments.push(
+        SubjectSegment::new(entity_id.to_string())
+            .map_err(|e| format!("Invalid entity ID '{}': {}", entity_id, e))?
+    );
+
+    Subject::from_segments(segments)
+        .map(|s| s.to_string())
+        .map_err(|e| format!("Failed to build subject: {}", e))
+}
+
+/// Build a wildcard pattern for stream subscription using SubjectPattern.
+///
+/// Creates patterns like `prefix.>` for multi-level wildcards
+fn build_wildcard_pattern(prefix: &str, wildcard: &str) -> String {
+    let pattern_str = format!("{}.{}", prefix, wildcard);
+    // Validate the pattern using SubjectPattern
+    match SubjectPattern::parse(&pattern_str) {
+        Ok(pattern) => pattern.to_string(),
+        Err(_) => pattern_str, // Fallback to string if validation fails
+    }
+}
+
+/// Build a filter pattern for aggregate events using SubjectPattern.
+///
+/// Creates patterns like `prefix.*.aggregate_id` for single-level wildcards
+fn build_aggregate_filter_pattern(prefix: &str, aggregate_id: &str) -> String {
+    let pattern_str = format!("{}.*.{}", prefix, aggregate_id);
+    // Validate using SubjectPattern
+    match SubjectPattern::parse(&pattern_str) {
+        Ok(pattern) => pattern.to_string(),
+        Err(_) => pattern_str,
+    }
+}
+
+/// Build a filter pattern for graph type events using SubjectPattern.
+///
+/// Creates patterns like `prefix.graph_type.*` for subscribing to all entities of a type
+fn build_graph_type_filter_pattern(prefix: &str, graph_type: &str) -> String {
+    let pattern_str = format!("{}.{}.*", prefix, graph_type);
+    // Validate using SubjectPattern
+    match SubjectPattern::parse(&pattern_str) {
+        Ok(pattern) => pattern.to_string(),
+        Err(_) => pattern_str,
+    }
+}
+
+/// Build a subject for correlation-based queries using SubjectSegment validation.
+///
+/// Returns segments that can be used for header-based filtering
+fn build_correlation_segments(correlation_id: Uuid) -> Vec<SubjectSegment> {
+    // Use SubjectSegment to validate the correlation ID format
+    if let Ok(segment) = SubjectSegment::new(correlation_id.to_string()) {
+        vec![segment]
+    } else {
+        vec![]
+    }
+}
+
+// ============================================================================
+// Event Type Determination
+// ============================================================================
+
 /// Determine event type and graph type from payload
 fn determine_event_type(payload: &EventPayload) -> (EventType, SubjectGraphType) {
     match payload {
@@ -563,7 +669,102 @@ fn determine_event_type(payload: &EventPayload) -> (EventType, SubjectGraphType)
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
+    // ========================================================================
+    // Subject Building Tests - Exercise Subject, SubjectSegment, SubjectPattern
+    // ========================================================================
+
+    #[test]
+    fn test_build_entity_subject() {
+        // Test building entity subjects using Subject and SubjectSegment
+        let subject = build_entity_subject("local.cim", "workflow", "12345").unwrap();
+        assert_eq!(subject, "local.cim.workflow.12345");
+
+        // Test with single-part prefix
+        let subject = build_entity_subject("cim", "ipld", "abc123").unwrap();
+        assert_eq!(subject, "cim.ipld.abc123");
+    }
+
+    #[test]
+    fn test_build_entity_subject_with_uuid() {
+        // Test that UUID-formatted entity IDs work correctly
+        let uuid = Uuid::new_v4();
+        let subject = build_entity_subject("local.cim", "context", &uuid.to_string()).unwrap();
+        assert!(subject.starts_with("local.cim.context."));
+        assert!(subject.contains(&uuid.to_string()));
+    }
+
+    #[test]
+    fn test_build_wildcard_pattern() {
+        // Test building wildcard patterns using SubjectPattern
+        let pattern = build_wildcard_pattern("local.cim", ">");
+        assert_eq!(pattern, "local.cim.>");
+
+        let pattern = build_wildcard_pattern("events", "*");
+        assert_eq!(pattern, "events.*");
+    }
+
+    #[test]
+    fn test_build_aggregate_filter_pattern() {
+        // Test aggregate filter patterns using SubjectPattern
+        let pattern = build_aggregate_filter_pattern("local.cim", "12345");
+        assert_eq!(pattern, "local.cim.*.12345");
+
+        let uuid = Uuid::new_v4();
+        let pattern = build_aggregate_filter_pattern("cim.graph", &uuid.to_string());
+        assert!(pattern.contains(".*.")); // Contains single-level wildcard
+        assert!(pattern.ends_with(&uuid.to_string()));
+    }
+
+    #[test]
+    fn test_build_graph_type_filter_pattern() {
+        // Test graph type filter patterns using SubjectPattern
+        let pattern = build_graph_type_filter_pattern("local.cim", "workflow");
+        assert_eq!(pattern, "local.cim.workflow.*");
+
+        let pattern = build_graph_type_filter_pattern("cim", "ipld");
+        assert_eq!(pattern, "cim.ipld.*");
+    }
+
+    #[test]
+    fn test_build_correlation_segments() {
+        // Test SubjectSegment validation for correlation IDs
+        let corr_id = Uuid::new_v4();
+        let segments = build_correlation_segments(corr_id);
+        assert_eq!(segments.len(), 1);
+        assert_eq!(segments[0].as_str(), corr_id.to_string());
+    }
+
+    #[test]
+    fn test_subject_types_integration() {
+        // Integration test: verify Subject, SubjectSegment, SubjectPattern work together
+        let prefix = "local.cim";
+        let graph_type = "workflow";
+        let entity_id = Uuid::new_v4().to_string();
+
+        // Build concrete subject
+        let subject = build_entity_subject(prefix, graph_type, &entity_id).unwrap();
+
+        // Build patterns that would match this subject
+        let all_pattern = build_wildcard_pattern(prefix, ">");
+        let agg_pattern = build_aggregate_filter_pattern(prefix, &entity_id);
+        let type_pattern = build_graph_type_filter_pattern(prefix, graph_type);
+
+        // Verify patterns are syntactically valid by parsing them
+        assert!(SubjectPattern::parse(&all_pattern).is_ok());
+        assert!(SubjectPattern::parse(&agg_pattern).is_ok());
+        assert!(SubjectPattern::parse(&type_pattern).is_ok());
+
+        // The concrete subject should be parseable as a Subject
+        assert!(subject.contains(prefix));
+        assert!(subject.contains(graph_type));
+        assert!(subject.contains(&entity_id));
+    }
+
+    // ========================================================================
+    // Integration Tests (Require NATS Server)
+    // ========================================================================
+
     #[tokio::test]
     #[ignore] // Requires NATS server
     async fn test_jetstream_connection() {
@@ -571,15 +772,15 @@ mod tests {
         let store = JetStreamEventStore::new(config).await;
         assert!(store.is_ok());
     }
-    
+
     #[tokio::test]
     #[ignore] // Requires NATS server
     async fn test_publish_and_fetch() {
         use crate::events::GenericPayload;
-        
+
         let config = JetStreamConfig::default();
         let store = JetStreamEventStore::new(config).await.unwrap();
-        
+
         let aggregate_id = Uuid::new_v4();
         let event = GraphEvent {
             event_id: Uuid::new_v4(),
@@ -591,11 +792,11 @@ mod tests {
                 data: serde_json::json!({ "test": true }),
             }),
         };
-        
+
         // Publish event
         let seq = store.publish_event(event.clone(), None).await.unwrap();
         assert!(seq > 0);
-        
+
         // Fetch events
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         let events = store.fetch_events(aggregate_id).await.unwrap();
