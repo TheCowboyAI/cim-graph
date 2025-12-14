@@ -290,4 +290,200 @@ mod tests {
         // Non-planar graph: K3,3 (6 nodes, 9 edges) - requires genus increase
         assert!(SpaceTopology::requires_genus_increase(6, 9));
     }
+
+    // ========================================================================
+    // Additional Topology Tests
+    // ========================================================================
+
+    #[test]
+    fn test_topology_undefined_euler() {
+        let topo = SpaceTopology::undefined();
+        assert_eq!(topo.compute_euler_characteristic(), 0);
+    }
+
+    #[test]
+    fn test_topology_point_euler() {
+        let topo = SpaceTopology::point();
+        assert_eq!(topo.compute_euler_characteristic(), 1);
+    }
+
+    #[test]
+    fn test_topology_line_euler() {
+        let topo = SpaceTopology::line_segment();
+        assert_eq!(topo.compute_euler_characteristic(), 1);
+    }
+
+    #[test]
+    fn test_topology_sphere_euler() {
+        let positions = vec![
+            Point3::new(1.0, 0.0, 0.0),
+            Point3::new(0.0, 1.0, 0.0),
+            Point3::new(0.0, 0.0, 1.0),
+        ];
+        let topo = SpaceTopology::spherical(positions);
+        assert_eq!(topo.compute_euler_characteristic(), 2);
+        assert_eq!(topo.genus, 0);
+    }
+
+    #[test]
+    fn test_topology_complex_manifold_euler() {
+        // Genus 1 (torus): Euler characteristic = 0
+        let topo = SpaceTopology::complex_manifold(1, vec![Point3::new(0.0, 0.0, 0.0)]);
+        assert_eq!(topo.compute_euler_characteristic(), 0);
+        assert_eq!(topo.genus, 1);
+
+        // Genus 2 (double torus): Euler characteristic = -2
+        let topo = SpaceTopology::complex_manifold(2, Vec::new());
+        assert_eq!(topo.compute_euler_characteristic(), -2);
+        assert_eq!(topo.genus, 2);
+    }
+
+    #[test]
+    fn test_topology_non_orientable_euler() {
+        // Klein bottle: Euler characteristic = 0
+        let topo = SpaceTopology {
+            topology_type: TopologyType::NonOrientable {
+                surface_type: NonOrientableSurfaceType::KleinBottle,
+            },
+            genus: 0,
+            euler_characteristic: 0,
+            manifold_dimension: 2,
+            is_orientable: false,
+        };
+        assert_eq!(topo.compute_euler_characteristic(), 0);
+
+        // Projective plane: Euler characteristic = 1
+        let topo = SpaceTopology {
+            topology_type: TopologyType::NonOrientable {
+                surface_type: NonOrientableSurfaceType::ProjectivePlane,
+            },
+            genus: 0,
+            euler_characteristic: 1,
+            manifold_dimension: 2,
+            is_orientable: false,
+        };
+        assert_eq!(topo.compute_euler_characteristic(), 1);
+
+        // Mobius strip: Euler characteristic = 0
+        let topo = SpaceTopology {
+            topology_type: TopologyType::NonOrientable {
+                surface_type: NonOrientableSurfaceType::MobiusStrip,
+            },
+            genus: 0,
+            euler_characteristic: 0,
+            manifold_dimension: 2,
+            is_orientable: false,
+        };
+        assert_eq!(topo.compute_euler_characteristic(), 0);
+    }
+
+    #[test]
+    fn test_generate_proof_all_types() {
+        // Test proof generation for all topology types
+        let undefined = SpaceTopology::undefined();
+        assert!(undefined.generate_proof().contains("Empty space"));
+
+        let point = SpaceTopology::point();
+        assert!(point.generate_proof().contains("Point topology"));
+
+        let line = SpaceTopology::line_segment();
+        assert!(line.generate_proof().contains("Line segment"));
+
+        let sphere = SpaceTopology::spherical(vec![Point3::new(1.0, 0.0, 0.0)]);
+        assert!(sphere.generate_proof().contains("Sphere"));
+
+        let manifold = SpaceTopology::complex_manifold(2, Vec::new());
+        assert!(manifold.generate_proof().contains("Complex manifold"));
+        assert!(manifold.generate_proof().contains("Genus=2"));
+    }
+
+    #[test]
+    fn test_generate_proof_non_orientable() {
+        let klein = SpaceTopology {
+            topology_type: TopologyType::NonOrientable {
+                surface_type: NonOrientableSurfaceType::KleinBottle,
+            },
+            genus: 0,
+            euler_characteristic: 0,
+            manifold_dimension: 2,
+            is_orientable: false,
+        };
+        assert!(klein.generate_proof().contains("Klein bottle"));
+        assert!(klein.generate_proof().contains("Non-orientable"));
+
+        let projective = SpaceTopology {
+            topology_type: TopologyType::NonOrientable {
+                surface_type: NonOrientableSurfaceType::ProjectivePlane,
+            },
+            genus: 0,
+            euler_characteristic: 1,
+            manifold_dimension: 2,
+            is_orientable: false,
+        };
+        assert!(projective.generate_proof().contains("Projective plane"));
+
+        let mobius = SpaceTopology {
+            topology_type: TopologyType::NonOrientable {
+                surface_type: NonOrientableSurfaceType::MobiusStrip,
+            },
+            genus: 0,
+            euler_characteristic: 0,
+            manifold_dimension: 2,
+            is_orientable: false,
+        };
+        assert!(mobius.generate_proof().contains("Mobius") || mobius.generate_proof().contains("strip"));
+    }
+
+    #[test]
+    fn test_genus_increase_edge_cases() {
+        // Less than 3 nodes - never requires genus increase
+        assert!(!SpaceTopology::requires_genus_increase(0, 0));
+        assert!(!SpaceTopology::requires_genus_increase(1, 0));
+        assert!(!SpaceTopology::requires_genus_increase(2, 1));
+
+        // Exactly 3 nodes, various edge counts
+        assert!(!SpaceTopology::requires_genus_increase(3, 0));
+        assert!(!SpaceTopology::requires_genus_increase(3, 3)); // Triangle
+
+        // Large graph at boundary: E = 3*10 - 6 = 24 (exactly at limit, still planar)
+        // Note: The function uses > not >=, so 24 is still planar for 10 nodes
+        // However, the heuristic may trigger the bipartite check
+        // Let's test cases that are clearly on either side:
+
+        // Clearly planar: well under both bounds
+        assert!(!SpaceTopology::requires_genus_increase(10, 10)); // Well under limit
+
+        // Clearly non-planar: over the general bound
+        assert!(SpaceTopology::requires_genus_increase(10, 30)); // E > 3*10 - 6 = 24
+    }
+
+    #[test]
+    fn test_topology_transition_creation() {
+        let transition = TopologyTransition {
+            event_id: "test_event".to_string(),
+            from_topology: TopologyType::Point,
+            to_topology: TopologyType::LineSegment,
+            mathematical_proof: "Adding second concept creates line segment".to_string(),
+            timestamp: 12345678,
+        };
+
+        assert_eq!(transition.event_id, "test_event");
+        assert!(matches!(transition.from_topology, TopologyType::Point));
+        assert!(matches!(transition.to_topology, TopologyType::LineSegment));
+    }
+
+    #[test]
+    fn test_topology_serialization() {
+        let topo = SpaceTopology::spherical(vec![
+            Point3::new(1.0, 0.0, 0.0),
+            Point3::new(0.0, 1.0, 0.0),
+        ]);
+
+        let json = serde_json::to_string(&topo).unwrap();
+        let deserialized: SpaceTopology = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(topo.genus, deserialized.genus);
+        assert_eq!(topo.euler_characteristic, deserialized.euler_characteristic);
+        assert_eq!(topo.manifold_dimension, deserialized.manifold_dimension);
+    }
 }

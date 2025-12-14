@@ -116,6 +116,9 @@ pub mod analytics;
 /// Conceptual spaces with topological structure
 pub mod conceptual_space;
 
+/// Functors and Kan extensions for domain mappings
+pub mod functors;
+
 // Re-exports
 pub use crate::core::{Node, Edge, EventHandler, GraphEvent as CoreGraphEvent, GraphProjection};
 pub use crate::error::{GraphError, Result};
@@ -127,6 +130,11 @@ pub use crate::graphs::{
     ComposedGraph,
 };
 pub use crate::events::{GraphEvent, GraphCommand, EventPayload};
+pub use crate::functors::{
+    Functor, MorphismData, NaturalTransformation, UniversalProperty,
+    domain_functor::{DomainFunctor, DomainObject, DomainRelationship, DomainAggregateType, RelationshipType},
+    kan_extension::{KanExtension, KanExtensionBuilder, ExtendedMapping, TargetRepresentation},
+};
 
 #[cfg(test)]
 mod tests {
