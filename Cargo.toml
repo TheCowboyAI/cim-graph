@@ -1,7 +1,7 @@
 
 [package]
 name = "cim-graph"
-version = "0.5.0"
+version = "0.8.0"
 edition = "2021"
 authors = ["CIM Team <team@thecowboy.ai>"]
 description = "Unified graph abstraction library consolidating all graph operations across the CIM ecosystem"
@@ -33,7 +33,8 @@ rustdoc-args = ["--cfg", "docsrs"]
 maintenance = { status = "actively-developed" }
 
 [dependencies]
-# CIM Domain (subject algebra absorbed here in 0.7+)
+# CIM Domain (ready for v0.8.0 upgrade when published)
+# TODO: Upgrade to v0.8.0 when tag is available
 cim-domain = { git = "ssh://git@github.com/TheCowboyAI/cim-domain.git", tag = "v0.7.8" }
 
 # Core dependencies
